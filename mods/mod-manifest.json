@@ -22,5 +22,13 @@
     "version": "1.0.0",
     "author": "Claude",
     "file": "mods/time-factory.js"
+  },
+  {
+    "id": "dungeon-explorer",
+    "name": "⚔️ Dungeon Explorer",
+    "description": "クッキー兵士を派遣して放置ダンジョン探索！素材収集・ボス撃破・装備クラフトで兵士を強化。装備はCpSにもボーナス。",
+    "version": "1.0.0",
+    "author": "Claude",
+    "file": "mods/dungeon-explorer.js"
   }
 ]
