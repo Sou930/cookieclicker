@@ -247,26 +247,28 @@
   function _init() {
     _loadState();
 
-    fetch(MANIFEST_URL)
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (data) {
+    // fetch は file:// プロトコルで失敗するため XHR で代替
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', MANIFEST_URL + '?_=' + Date.now(), true);
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== XMLHttpRequest.DONE) return;
+      try {
+        var data = JSON.parse(xhr.responseText);
         _manifest = Array.isArray(data) ? data : [];
         console.log('[ModLoader] manifest 読み込み (' + _manifest.length + ' MOD)');
-
-        // 前回ONだったMODを自動有効化
         for (var i = 0; i < _manifest.length; i++) {
           if (_enabled[_manifest[i].id]) _enableMod(_manifest[i]);
         }
-
-        _hookUpdateMenu();
-      })
-      .catch(function (err) {
-        console.warn('[ModLoader] manifest 読み込みエラー:', err);
-        _hookUpdateMenu(); // manifest がなくてもフックは仕込む
-      });
+      } catch (e) {
+        console.warn('[ModLoader] manifest 読み込みエラー:', e);
+      }
+      _hookUpdateMenu();
+    };
+    xhr.onerror = function () {
+      console.warn('[ModLoader] manifest XHR エラー');
+      _hookUpdateMenu();
+    };
+    xhr.send();
   }
 
   if (document.readyState === 'loading') {
