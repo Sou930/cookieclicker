@@ -1,1 +1,18 @@
-
+[
+  {
+    "id": "cookie-monster",
+    "name": "Cookie Monster",
+    "description": "購入効率(PP)の表示・ゴールデンクッキー補助・統計情報強化など。OFFにするにはリロードが必要です。",
+    "version": "latest",
+    "author": "CookieMonsterTeam",
+    "file": "https://cookiemonsterteam.github.io/CookieMonster/dist/CookieMonster.js"
+  },
+  {
+    "id": "frozen-cookies",
+    "name": "Frozen Cookies",
+    "description": "自動化・最適化支援ツール。長期放置プレイの効率化などに。OFFにするにはリロードが必要です。",
+    "version": "latest",
+    "author": "mtarnuhal",
+    "file": "https://mtarnuhal.github.io/FrozenCookies/frozen_cookies.js"
+  }
+]
