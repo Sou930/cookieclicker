@@ -3,16 +3,17 @@
  * ==========================================================
  * Frozen Cookies の主要機能を再実装した軽量版。
  *
+ * 安全化ポイント:
+ *   - Game 初期化完了を待ってから起動
+ *   - Game.Objects / Game.UpgradesInStore の未定義をガード
+ *   - document.body が無い場合は DOM 追加を遅延
+ *   - 例外が出ても MOD 全体が止まりにくいようにする
+ *
  * 機能:
- *   1. 効率ランキング表示 (Frozen Cookies の "FC" テーブル相当)
- *      - 建物・アップグレードを「回収時間」順にソートして表示
+ *   1. 効率ランキング表示
  *   2. 自動購入 (建物・アップグレード)
- *      - 最も効率の良いものを自動で購入
  *   3. 自動ゴールデンクッキークリック
- *      - 画面上の golden shimmer を自動 pop
- *      - Wrath Cookie (赤) を避けるオプション
  *   4. 自動ラッパーpop
- *      - ラッパーの hp を 0 にして即 pop
  *
  * 設定は window.SmartHelper.config で行う。
  */
@@ -21,19 +22,19 @@
   'use strict';
 
   /* =========================================================
-     設定 (起動後に window.SmartHelper.config.xxx = yyy で変更可)
+     設定
   ========================================================= */
   var config = {
-    autoBuy        : false,  // 自動購入
-    autoBuyInterval: 1000,   // 自動購入間隔 (ms)
-    autoGC         : false,  // 自動ゴールデンクッキークリック
-    autoGCInterval : 500,    // GCチェック間隔 (ms)
-    skipWrath      : true,   // true = Wrath Cookie (赤) はクリックしない
-    autoPopWrinkler: false,  // 自動ラッパーpop
-    autoPopInterval: 5000,   // ラッパーpopチェック間隔 (ms)
-    skipShinyWrinkler: true, // true = 光るラッパーはpopしない
-    showTable      : true,   // 効率テーブルを画面に表示
-    tableRows      : 10,     // テーブルに表示する行数
+    autoBuy         : false,
+    autoBuyInterval : 1000,
+    autoGC          : false,
+    autoGCInterval  : 500,
+    skipWrath       : true,
+    autoPopWrinkler : false,
+    autoPopInterval : 5000,
+    skipShinyWrinkler: true,
+    showTable       : true,
+    tableRows       : 10,
   };
 
   /* =========================================================
@@ -43,70 +44,129 @@
 
   function _startTimer(key, fn, ms) {
     _stopTimer(key);
-    _timers[key] = setInterval(fn, ms);
+    _timers[key] = setInterval(function () {
+      try {
+        fn();
+      } catch (e) {
+        console.error('[SmartHelper] timer error (' + key + '):', e);
+      }
+    }, ms);
   }
+
   function _stopTimer(key) {
-    if (_timers[key]) { clearInterval(_timers[key]); delete _timers[key]; }
+    if (_timers[key]) {
+      clearInterval(_timers[key]);
+      delete _timers[key];
+    }
+  }
+
+  function _stopAllTimers() {
+    Object.keys(_timers).forEach(function (k) { _stopTimer(k); });
   }
 
   /* =========================================================
-     効率計算 (Frozen Cookies 式)
-     efficiency = cost * 1.15 / currentCps + cost / deltaCps
-     小さいほど良い
+     安全ガード
   ========================================================= */
+  function _gameReady() {
+    return (
+      typeof Game !== 'undefined' &&
+      Game &&
+      Game.Objects &&
+      Game.UpgradesInStore &&
+      Array.isArray(Game.UpgradesInStore)
+    );
+  }
+
+  function _whenReady(fn, retryMs) {
+    retryMs = retryMs || 1000;
+
+    function check() {
+      if (_gameReady()) {
+        try {
+          fn();
+        } catch (e) {
+          console.error('[SmartHelper] ready hook error:', e);
+        }
+        return;
+      }
+      setTimeout(check, retryMs);
+    }
+
+    check();
+  }
+
+  function _safeBodyAppend(el) {
+    if (document.body) {
+      document.body.appendChild(el);
+      return true;
+    }
+    setTimeout(function () { _safeBodyAppend(el); }, 300);
+    return false;
+  }
+
+  /* =========================================================
+     効率計算
+     ========================================================= */
   function _currentCps() {
-    if (typeof Game === 'undefined') return 1;
-    return Math.max(Game.cookiesPs * (1 - Game.cpsSucked) + Game.computedMouseCps, 0.0001);
+    if (!_gameReady()) return 1;
+    var cps = (Game.cookiesPs || 0) * (1 - (Game.cpsSucked || 0)) + (Game.computedMouseCps || 0);
+    return Math.max(cps, 0.0001);
   }
 
   function _buildingEfficiency(obj) {
-    var price    = obj.price;
-    var deltaCps = obj.storedCps * Game.globalCpsMult;
+    if (!obj) return Infinity;
+    var price = obj.price || 0;
+    var deltaCps = (obj.storedCps || 0) * (Game.globalCpsMult || 1);
     if (deltaCps <= 0) return Infinity;
     return price * 1.15 / _currentCps() + price / deltaCps;
   }
 
   function _upgradeEfficiency(up) {
-    // アップグレードはΔCps推定が難しいため
-    // 「コスト / 現在CpS」で近似 (小さい = 安くて早く回収)
+    if (!up || typeof up.getPrice !== 'function') return Infinity;
     var price = up.getPrice();
     return price / _currentCps();
   }
 
   /* =========================================================
-     全購入候補のリストを効率順で返す
-  ========================================================= */
+     購入候補ランキング
+     ========================================================= */
   function _getRankedList() {
-    if (typeof Game === 'undefined') return [];
+    if (!_gameReady()) return [];
+
     var list = [];
 
-    // 建物
     for (var name in Game.Objects) {
+      if (!Object.prototype.hasOwnProperty.call(Game.Objects, name)) continue;
       var obj = Game.Objects[name];
+      if (!obj) continue;
+
       var eff = _buildingEfficiency(obj);
       list.push({
-        name   : obj.dname || obj.name,
-        price  : obj.price,
+        name   : obj.dname || obj.name || name,
+        price  : obj.price || 0,
         eff    : eff,
-        canBuy : Game.cookies >= obj.price,
-        type   : 'building'
+        canBuy : (Game.cookies || 0) >= (obj.price || 0),
+        type   : 'building',
+        ref    : obj
       });
     }
 
-    // アップグレード (ストア内・未購入・通常プール)
     for (var i = 0; i < Game.UpgradesInStore.length; i++) {
       var up = Game.UpgradesInStore[i];
+      if (!up) continue;
       if (up.bought) continue;
       if (up.pool === 'prestige' || up.pool === 'debug' || up.pool === 'toggle') continue;
-      if (up.isVaulted()) continue;
+      if (typeof up.isVaulted === 'function' && up.isVaulted()) continue;
       if (up.priceLumps > 0) continue;
+
       var eff2 = _upgradeEfficiency(up);
       list.push({
-        name   : up.dname || up.name,
-        price  : up.getPrice(),
+        name   : up.dname || up.name || ('upgrade-' + i),
+        price  : typeof up.getPrice === 'function' ? up.getPrice() : (up.price || 0),
         eff    : eff2,
-        canBuy : up.canBuy(),
-        type   : 'upgrade'
+        canBuy : typeof up.canBuy === 'function' ? up.canBuy() : false,
+        type   : 'upgrade',
+        ref    : up
       });
     }
 
@@ -115,8 +175,8 @@
   }
 
   /* =========================================================
-     1. 効率テーブル UI
-  ========================================================= */
+     効率テーブル UI
+     ========================================================= */
   var _tableEl = null;
 
   function _createTable() {
@@ -140,41 +200,67 @@
       'pointer-events:none',
       'line-height:1.5'
     ].join(';');
-    document.body.appendChild(_tableEl);
+
+    _safeBodyAppend(_tableEl);
   }
 
   function _removeTable() {
-    if (_tableEl) { _tableEl.parentNode && _tableEl.parentNode.removeChild(_tableEl); _tableEl = null; }
+    if (_tableEl && _tableEl.parentNode) {
+      _tableEl.parentNode.removeChild(_tableEl);
+    }
+    _tableEl = null;
+  }
+
+  function _shortNum(n) {
+    if (n === Infinity) return '∞';
+    if (typeof n !== 'number' || isNaN(n)) return '0';
+    var units = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+    var i = 0;
+    while (n >= 1000 && i < units.length - 1) {
+      n /= 1000;
+      i++;
+    }
+    return (i === 0 ? Math.round(n) : n.toFixed(2)) + units[i];
   }
 
   function _updateTable() {
-    if (!config.showTable) { _removeTable(); return; }
+    if (!config.showTable) {
+      _removeTable();
+      return;
+    }
+    if (!_gameReady()) return;
+
     _createTable();
+    if (!_tableEl) return;
+
     var list = _getRankedList().slice(0, config.tableRows);
-    var cps  = _currentCps();
+    var cps = _currentCps();
     var html = '<b style="color:#ffd080;">📊 効率ランキング</b> <span style="opacity:0.5;font-size:10px;">CpS: ' + _shortNum(cps) + '</span><br>';
     html += '<table style="border-collapse:collapse;width:100%;">';
     html += '<tr style="opacity:0.6;font-size:10px;"><td>名前</td><td style="text-align:right;">コスト</td><td style="text-align:right;">回収(秒)</td></tr>';
+
     for (var i = 0; i < list.length; i++) {
-      var item    = list[i];
-      var color   = item.canBuy ? '#a0e8a0' : '#e8e8e8';
-      var badge   = item.type === 'upgrade' ? '<span style="color:#ffd080;">▲</span>' : '🏠';
+      var item = list[i];
+      var color = item.canBuy ? '#a0e8a0' : '#e8e8e8';
+      var badge = item.type === 'upgrade' ? '<span style="color:#ffd080;">▲</span>' : '🏠';
       var payback = item.eff === Infinity ? '∞' : _shortNum(item.eff) + 's';
+
       html += '<tr style="color:' + color + ';">' +
         '<td>' + badge + ' ' + item.name + '</td>' +
         '<td style="text-align:right;">' + _shortNum(item.price) + '</td>' +
         '<td style="text-align:right;">' + payback + '</td>' +
         '</tr>';
     }
+
     html += '</table>';
     _tableEl.innerHTML = html;
   }
 
   /* =========================================================
-     2. 自動購入
-  ========================================================= */
+     自動購入
+     ========================================================= */
   function _autoBuyTick() {
-    if (typeof Game === 'undefined') return;
+    if (!_gameReady()) return;
     if (Game.OnAscend || Game.AscendTimer > 0) return;
 
     var list = _getRankedList();
@@ -182,73 +268,147 @@
       var item = list[i];
       if (!item.canBuy) continue;
 
-      if (item.type === 'upgrade') {
-        // アップグレードを特定して購入
-        for (var j = 0; j < Game.UpgradesInStore.length; j++) {
-          var up = Game.UpgradesInStore[j];
-          if ((up.dname || up.name) === item.name && up.canBuy()) {
-            up.buy(1);
-            return;
-          }
+      try {
+        if (item.type === 'upgrade') {
+          item.ref.buy(1);
+          return;
+        } else if (item.type === 'building') {
+          item.ref.buy(1);
+          return;
         }
-      } else {
-        // 建物を購入
-        for (var name in Game.Objects) {
-          var obj = Game.Objects[name];
-          if ((obj.dname || obj.name) === item.name && Game.cookies >= obj.price) {
-            obj.buy(1);
-            return;
-          }
-        }
+      } catch (e) {
+        console.error('[SmartHelper] autoBuy error:', e);
       }
-      break; // 1回に1つだけ
     }
   }
 
   /* =========================================================
-     3. 自動ゴールデンクッキークリック
-  ========================================================= */
+     自動ゴールデンクッキークリック
+     ========================================================= */
   function _autoGCTick() {
-    if (typeof Game === 'undefined') return;
+    if (!_gameReady()) return;
     if (Game.OnAscend) return;
-    for (var i = Game.shimmers.length - 1; i >= 0; i--) {
-      var s = Game.shimmers[i];
+
+    var shimmers = Game.shimmers || [];
+    for (var i = shimmers.length - 1; i >= 0; i--) {
+      var s = shimmers[i];
+      if (!s) continue;
       if (s.type !== 'golden' && s.type !== 'reindeer') continue;
       if (config.skipWrath && s.wrath) continue;
-      s.pop();
+
+      try {
+        if (typeof s.pop === 'function') s.pop();
+      } catch (e) {
+        console.error('[SmartHelper] autoGC error:', e);
+      }
     }
   }
 
   /* =========================================================
-     4. 自動ラッパーpop
-  ========================================================= */
+     自動ラッパーpop
+     ========================================================= */
   function _autoPopWrinklerTick() {
-    if (typeof Game === 'undefined') return;
-    for (var i = 0; i < Game.wrinklers.length; i++) {
-      var w = Game.wrinklers[i];
-      if (w.phase !== 2) continue;                         // phase 2 = 吸いついている状態
-      if (config.skipShinyWrinkler && w.type === 1) continue; // 光るラッパーはスキップ
-      // hp を 0 未満にして即 pop
-      w.hp = 0;
+    if (!_gameReady()) return;
+
+    var wrinklers = Game.wrinklers || [];
+    for (var i = 0; i < wrinklers.length; i++) {
+      var w = wrinklers[i];
+      if (!w) continue;
+      if (w.phase !== 2) continue;
+      if (config.skipShinyWrinkler && w.type === 1) continue;
+
+      try {
+        w.hp = 0;
+      } catch (e) {
+        console.error('[SmartHelper] wrinkler error:', e);
+      }
     }
   }
 
   /* =========================================================
-     数値短縮ヘルパー
-  ========================================================= */
-  function _shortNum(n) {
-    if (n === Infinity) return '∞';
-    var units = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
-    var i = 0;
-    while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
-    return (i === 0 ? Math.round(n) : n.toFixed(2)) + units[i];
+     パネル UI
+     ========================================================= */
+  var _panelEl = null;
+
+  function _buildPanel() {
+    if (_panelEl) return;
+    _panelEl = document.createElement('div');
+    _panelEl.id = 'smartHelperPanel';
+    _panelEl.style.cssText = [
+      'position:fixed',
+      'top:40px',
+      'right:4px',
+      'z-index:99999',
+      'background:rgba(0,0,0,0.82)',
+      'color:#e8d8b0',
+      'font-size:11px',
+      'font-family:Georgia,serif',
+      'border:1px solid rgba(255,200,100,0.3)',
+      'border-radius:4px',
+      'padding:6px 8px',
+      'min-width:180px'
+    ].join(';');
+
+    _safeBodyAppend(_panelEl);
+    _refreshPanel();
+  }
+
+  function _removePanel() {
+    if (_panelEl && _panelEl.parentNode) {
+      _panelEl.parentNode.removeChild(_panelEl);
+    }
+    _panelEl = null;
+  }
+
+  function _refreshPanel() {
+    if (!_panelEl) return;
+
+    function btn(key, label) {
+      var on = !!config[key];
+      return '<a style="display:inline-block;cursor:pointer;padding:1px 5px;margin:1px 2px;border-radius:3px;' +
+        (on
+          ? 'background:rgba(100,200,80,0.35);border:1px solid rgba(100,200,80,0.7);'
+          : 'background:rgba(60,60,60,0.5);border:1px solid rgba(120,120,120,0.4);') +
+        '" onclick="SmartHelper.toggle(\'' + key + '\');return false;">' +
+        (on ? '✅' : '⬜') + ' ' + label + '</a><br>';
+    }
+
+    _panelEl.innerHTML =
+      '<b style="color:#ffd080;">🍪 SmartHelper</b><br>' +
+      '<div style="margin-top:4px;">' +
+      btn('autoBuy', '自動購入') +
+      btn('autoGC', 'GC自動クリック') +
+      btn('skipWrath', 'Wrathスキップ') +
+      btn('autoPopWrinkler', 'ラッパー自動pop') +
+      btn('skipShinyWrinkler', '光るラッパー除外') +
+      btn('showTable', '効率テーブル表示') +
+      '</div>';
   }
 
   /* =========================================================
-     全タイマーを再起動
-  ========================================================= */
+     公開API
+     ========================================================= */
+  window.SmartHelper = {
+    config: config,
+
+    toggle: function (key) {
+      if (typeof config[key] !== 'boolean') return;
+      config[key] = !config[key];
+      _applyConfig();
+      _refreshPanel();
+    },
+
+    setConfig: function (key, val) {
+      config[key] = val;
+      _applyConfig();
+      _refreshPanel();
+    }
+  };
+
+  /* =========================================================
+     設定反映
+     ========================================================= */
   function _applyConfig() {
-    // テーブル更新 (常に動かす)
     if (config.showTable) {
       _startTimer('table', _updateTable, 2000);
     } else {
@@ -276,101 +436,28 @@
   }
 
   /* =========================================================
-     コントロールパネル (ゲーム画面右上に固定表示)
-  ========================================================= */
-  var _panelEl = null;
-
-  function _buildPanel() {
-    if (_panelEl) return;
-    _panelEl = document.createElement('div');
-    _panelEl.id = 'smartHelperPanel';
-    _panelEl.style.cssText = [
-      'position:fixed',
-      'top:40px',
-      'right:4px',
-      'z-index:99999',
-      'background:rgba(0,0,0,0.82)',
-      'color:#e8d8b0',
-      'font-size:11px',
-      'font-family:Georgia,serif',
-      'border:1px solid rgba(255,200,100,0.3)',
-      'border-radius:4px',
-      'padding:6px 8px',
-      'min-width:180px'
-    ].join(';');
-    document.body.appendChild(_panelEl);
-    _refreshPanel();
-  }
-
-  function _removePanel() {
-    if (_panelEl) { _panelEl.parentNode && _panelEl.parentNode.removeChild(_panelEl); _panelEl = null; }
-  }
-
-  function _refreshPanel() {
-    if (!_panelEl) return;
-
-    function btn(key, label) {
-      var on = !!config[key];
-      return '<a style="display:inline-block;cursor:pointer;padding:1px 5px;margin:1px 2px;border-radius:3px;' +
-        (on ? 'background:rgba(100,200,80,0.35);border:1px solid rgba(100,200,80,0.7);'
-             : 'background:rgba(60,60,60,0.5);border:1px solid rgba(120,120,120,0.4);') +
-        '" onclick="SmartHelper.toggle(\'' + key + '\');return false;">' +
-        (on ? '✅' : '⬜') + ' ' + label + '</a><br>';
-    }
-
-    _panelEl.innerHTML =
-      '<b style="color:#ffd080;">🍪 SmartHelper</b><br>' +
-      '<div style="margin-top:4px;">' +
-      btn('autoBuy',         '自動購入') +
-      btn('autoGC',          'GC自動クリック') +
-      btn('skipWrath',       'Wrathスキップ') +
-      btn('autoPopWrinkler', 'ラッパー自動pop') +
-      btn('skipShinyWrinkler','光るラッパー除外') +
-      btn('showTable',       '効率テーブル表示') +
-      '</div>';
-  }
-
-  /* =========================================================
-     グローバル公開
-  ========================================================= */
-  window.SmartHelper = {
-    config: config,
-
-    toggle: function (key) {
-      if (typeof config[key] !== 'boolean') return;
-      config[key] = !config[key];
-      _applyConfig();
-      _refreshPanel();
-    },
-
-    setConfig: function (key, val) {
-      config[key] = val;
-      _applyConfig();
-      _refreshPanel();
-    }
-  };
-
-  /* =========================================================
-     MODローダー向け登録
-  ========================================================= */
+     MOD登録
+     ========================================================= */
   var _mod = {
     id: 'smart-helper',
 
     init: function () {
-      _buildPanel();
-      _applyConfig();
-      console.log('[SmartHelper] 起動。window.SmartHelper.config で設定変更可能。');
+      _whenReady(function () {
+        _buildPanel();
+        _applyConfig();
+        console.log('[SmartHelper] 起動。window.SmartHelper.config で設定変更可能。');
+      }, 1000);
     },
 
     disable: function () {
-      Object.keys(_timers).forEach(function (k) { _stopTimer(k); });
+      _stopAllTimers();
       _removeTable();
       _removePanel();
       console.log('[SmartHelper] 停止。');
     }
   };
 
-  if (window.CookieClickerMods) {
+  if (window.CookieClickerMods && typeof window.CookieClickerMods.register === 'function') {
     window.CookieClickerMods.register(_mod);
   } else {
     console.error('[SmartHelper] CookieClickerMods が見つかりません');
