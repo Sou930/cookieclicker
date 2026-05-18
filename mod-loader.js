@@ -78,9 +78,15 @@
   function _loadScript(mod, onReady) {
     if (_scripts[mod.id]) { if (onReady) onReady(); return; }
     var s = document.createElement('script');
-    s.src = mod.file + '?_=' + Date.now();
+    // 外部URL（http/https）はキャッシュバスターを付けない（CORS・ネットワーク問題を避ける）
+    var isExternal = /^https?:\/\//.test(mod.file);
+    s.src = isExternal ? mod.file : (mod.file + '?_=' + Date.now());
     s.onload = function () { _scripts[mod.id] = s; if (onReady) onReady(); };
-    s.onerror = function () { console.error('[ModLoader] 読み込み失敗:', mod.file); };
+    s.onerror = function () {
+      console.error('[ModLoader] 読み込み失敗:', mod.file);
+      // 失敗してもゲーム起動をブロックしないよう onReady を呼ぶ
+      if (onReady) onReady();
+    };
     document.body.appendChild(s);
   }
 
@@ -252,15 +258,21 @@
     xhr.open('GET', MANIFEST_URL + '?_=' + Date.now(), true);
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== XMLHttpRequest.DONE) return;
-      try {
-        var data = JSON.parse(xhr.responseText);
-        _manifest = Array.isArray(data) ? data : [];
-        console.log('[ModLoader] manifest 読み込み (' + _manifest.length + ' MOD)');
-        for (var i = 0; i < _manifest.length; i++) {
-          if (_enabled[_manifest[i].id]) _enableMod(_manifest[i]);
+      // file:// では status=0、http では status=200 が成功
+      var ok = (xhr.status === 200 || xhr.status === 0) && xhr.responseText;
+      if (ok) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          _manifest = Array.isArray(data) ? data : [];
+          console.log('[ModLoader] manifest 読み込み (' + _manifest.length + ' MOD)');
+          for (var i = 0; i < _manifest.length; i++) {
+            if (_enabled[_manifest[i].id]) _enableMod(_manifest[i]);
+          }
+        } catch (e) {
+          console.warn('[ModLoader] manifest JSONパースエラー:', e);
         }
-      } catch (e) {
-        console.warn('[ModLoader] manifest 読み込みエラー:', e);
+      } else {
+        console.warn('[ModLoader] manifest 読み込み失敗 status=' + xhr.status);
       }
       _hookUpdateMenu();
     };
