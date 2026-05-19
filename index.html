@@ -46,19 +46,19 @@ Feel free to alter this code to your liking, but please do not re-host it, do no
 </head>
 <body>
 
-<div id="wrapper">
+<div id="topBar">
+    <!-- 既存の言語切り替えボタンはそのまま -->
+    ...
 
-	<div id="topBar">
-    <div style="float:right;position:relative;">
-        <!-- 言語切り替えボタン（既存） -->
-        <div id="tinyglobe" ...></div>
-        <a id="changeLanguage" ...>Change language</a>
-    </div>
-    <div id="topBarEnd" style="float:right;padding:0px;"></div>
-
-    <!-- ↓これを追加 -->
+    <!-- ↓以下を追加（非表示で問題なし） -->
+    <div id="heralds" style="display:none;"><span id="heraldsAmount">?</span></div>
+    <span id="httpsSwitch" style="display:none;"></span>
+    <span id="textareaPrompt" style="display:none;"></span>
     <a id="topbarOtherVersions" style="display:none;">Other versions</a>
+    <a id="topbarOrteil" style="display:none;"></a>
     <a id="topbarTumblr" style="display:none;"></a>
+    <a id="topbarTwitter" style="display:none;"></a>
+    <a id="topbarDashnet" style="display:none;"></a>
     <a id="topbarDiscord" style="display:none;"></a>
     <a id="topbarMerch" style="display:none;"></a>
     <a id="topbarMobileCC" style="display:none;"></a>
