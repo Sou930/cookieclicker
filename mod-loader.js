@@ -1,47 +1,29 @@
 /**
  * mod-loader.js  ―  Cookie Clicker MOD Loader
  * =============================================
- * 配置: リポジトリルート (index.html と同じ階層)
- *
- * index.html の </body> 直前に追加:
- *   <script src="mod-loader.js"></script>
- *
- * 動作:
- *   - mods/mod-manifest.json からMOD一覧を読み込む
- *   - LocalStorage でON/OFF状態を永続化
- *   - Game.UpdateMenu を上書きし、Options の末尾に
- *     ゲームネイティブなスタイルの "Mods" セクションを追加
- *   - ONのMODは <script> タグで動的ロード → init() 呼び出し
- *   - OFFにすると disable() を呼んでからタグを削除
+ * 変更点:
+ *  - 各MOD詳細タブからは実績欄を削除（設定のみ表示）
+ *  - MOD一覧タブの下部に「MOD実績」テーブルを追加
+ *    各MODごとに行を作り、実績がないMODは「なし」と表示
+ *  - 通常の実績欄に出ないようMOD側でpoolを'mod'等にする想定
  */
 
 (function () {
   'use strict';
 
-  /* =========================================================
-     定数
-  ========================================================= */
   var MANIFEST_URL = 'mods/mod-manifest.json';
   var STORAGE_KEY  = 'CC_ModsEnabled';
 
-  /* =========================================================
-     グローバル公開API  ―  各MODファイルが呼び出す
-  ========================================================= */
-  var _registered  = {};  // { modId: modObject }
-  var _pendingInit = {};  // ロード済みだが register() 前のもの
+  var _registered  = {};
+  var _pendingInit = {};
 
   window.CookieClickerMods = {
-    /**
-     * MODを登録する。MODファイルの末尾で必ず呼ぶ。
-     * @param {{ id:string, init:function, disable:function }} mod
-     */
     register: function (mod) {
       if (!mod || !mod.id) {
         console.error('[ModLoader] register(): id が必要です');
         return;
       }
       _registered[mod.id] = mod;
-      // すでに有効化が要求されていたら即 init
       if (_pendingInit[mod.id]) {
         delete _pendingInit[mod.id];
         if (typeof mod.init === 'function') {
@@ -50,20 +32,13 @@
         }
       }
     },
-    /** 登録済みMODオブジェクトへの参照（achievements の後付け更新用） */
     _registered: _registered
   };
 
-  /* =========================================================
-     内部状態
-  ========================================================= */
-  var _manifest = [];  // mod-manifest.json の配列
-  var _enabled  = {};  // { modId: bool }
-  var _scripts  = {};  // { modId: <script>要素 }
+  var _manifest = [];
+  var _enabled  = {};
+  var _scripts  = {};
 
-  /* =========================================================
-     LocalStorage
-  ========================================================= */
   function _saveState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_enabled)); } catch (e) {}
   }
@@ -74,21 +49,13 @@
     } catch (e) {}
   }
 
-  /* =========================================================
-     スクリプト動的ロード / アンロード
-  ========================================================= */
   function _loadScript(mod, onReady) {
     if (_scripts[mod.id]) { if (onReady) onReady(); return; }
     var s = document.createElement('script');
-    // 外部URL（http/https）はキャッシュバスターを付けない（CORS・ネットワーク問題を避ける）
     var isExternal = /^https?:\/\//.test(mod.file);
     s.src = isExternal ? mod.file : (mod.file + '?_=' + Date.now());
-    s.onload = function () { _scripts[mod.id] = s; if (onReady) onReady(); };
-    s.onerror = function () {
-      console.error('[ModLoader] 読み込み失敗:', mod.file);
-      // 失敗してもゲーム起動をブロックしないよう onReady を呼ぶ
-      if (onReady) onReady();
-    };
+    s.onload  = function () { _scripts[mod.id] = s; if (onReady) onReady(); };
+    s.onerror = function () { console.error('[ModLoader] 読み込み失敗:', mod.file); if (onReady) onReady(); };
     document.body.appendChild(s);
   }
 
@@ -100,9 +67,6 @@
     delete _pendingInit[modId];
   }
 
-  /* =========================================================
-     MOD ON / OFF
-  ========================================================= */
   function _enableMod(mod) {
     _pendingInit[mod.id] = true;
     _loadScript(mod, function () {
@@ -130,9 +94,6 @@
     _saveState();
   }
 
-  /* =========================================================
-     トグル  ―  オプション画面のボタン onclick から呼ばれる
-  ========================================================= */
   window.ModLoader_toggle = function (modId) {
     var mod = null;
     for (var i = 0; i < _manifest.length; i++) {
@@ -140,40 +101,11 @@
     }
     if (!mod) return;
     if (_enabled[modId]) { _disableMod(mod); } else { _enableMod(mod); }
-    // メニューを即再描画
     if (typeof Game !== 'undefined' && Game.UpdateMenu) Game.UpdateMenu();
   };
 
   /* =========================================================
-     Mod内実績ブロック HTML 生成
-     Game.Achievements から modId に関連する実績を集める
-  ========================================================= */
-  function _buildAchievSection(modId) {
-    if (typeof Game === 'undefined' || !Game.Achievements) return '';
-    var reg = _registered[modId];
-    if (!reg || !reg.achievements || reg.achievements.length === 0) return '';
-
-    var str = '<div class="block" style="padding:0px;margin:8px 4px;">' +
-              '<div class="subsection" style="padding:0px;">' +
-              '<div class="title">Mod内実績</div>' +
-              '<div class="listing crateBox">';
-
-    var found = 0;
-    for (var j = 0; j < reg.achievements.length; j++) {
-      var aName = reg.achievements[j];
-      var a = Game.Achievements[aName];
-      if (a) {
-        str += Game.crate(a, 'stats');
-        found++;
-      }
-    }
-    str += '</div></div></div>';
-    return found > 0 ? str : '';
-  }
-
-  /* =========================================================
      Mod設定ブロック HTML 生成
-     各Modが settings() 関数を持つ場合はその内容を表示
   ========================================================= */
   function _buildSettingsSection(modId) {
     var reg = _registered[modId];
@@ -191,7 +123,7 @@
   /* =========================================================
      サブタブ切替
   ========================================================= */
-  var _activeTab = 'mods'; // 'mods' | modId
+  var _activeTab = 'mods';
 
   window.ModLoader_setTab = function (tab) {
     _activeTab = tab;
@@ -209,7 +141,6 @@
       tabs.push({ id: enabledMods[j].id, label: enabledMods[j].name || enabledMods[j].id });
     }
 
-    // アクティブタブが存在しない場合は 'mods' にフォールバック
     var valid = false;
     for (var t = 0; t < tabs.length; t++) if (tabs[t].id === _activeTab) { valid = true; break; }
     if (!valid) _activeTab = 'mods';
@@ -226,6 +157,44 @@
     }
     str += '</div>';
     return str;
+  }
+
+  /* =========================================================
+     MOD一覧 + MOD実績テーブル
+  ========================================================= */
+  function _buildModAchievementsTable() {
+    if (typeof Game === 'undefined' || !Game.Achievements || !Game.crate) return '';
+    var rows = '';
+    for (var i = 0; i < _manifest.length; i++) {
+      var mod  = _manifest[i];
+      var reg  = _registered[mod.id];
+      var name = mod.name || mod.id;
+      var crates = '';
+      var has    = false;
+      if (reg && reg.achievements && reg.achievements.length > 0) {
+        for (var j = 0; j < reg.achievements.length; j++) {
+          var a = Game.Achievements[reg.achievements[j]];
+          if (a) { crates += Game.crate(a, 'stats'); has = true; }
+        }
+      }
+      rows +=
+        '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
+          '<td style="padding:6px 10px;vertical-align:middle;white-space:nowrap;">' +
+            '<b>' + name + '</b>' +
+          '</td>' +
+          '<td style="padding:6px 10px;vertical-align:middle;">' +
+            (has ? '<div class="crateBox" style="display:inline-block;">' + crates + '</div>'
+                 : '<label style="opacity:0.5;">なし</label>') +
+          '</td>' +
+        '</tr>';
+    }
+
+    return '<div class="block" style="padding:0px;margin:8px 4px;">' +
+           '<div class="subsection" style="padding:0px;">' +
+           '<div class="title">MOD実績</div>' +
+           '<div class="listing"><table style="width:100%;border-collapse:collapse;">' +
+           rows +
+           '</table></div></div></div>';
   }
 
   function _buildModsListPanel() {
@@ -260,15 +229,9 @@
     }
     str += '</div></div>';
 
-    // サードパーティ実績
-    if (typeof Game !== 'undefined' && Game.Achievements && Game.Achievements['Third-party']) {
-      str += '<div class="block" style="padding:0px;margin:8px 4px;">' +
-             '<div class="subsection" style="padding:0px;">' +
-             '<div class="title">Mod関連実績</div>' +
-             '<div class="listing crateBox">' +
-             Game.crate(Game.Achievements['Third-party'], 'stats') +
-             '</div></div></div>';
-    }
+    // MOD実績テーブル
+    str += _buildModAchievementsTable();
+
     return str;
   }
 
@@ -279,20 +242,16 @@
     if (!_enabled[modId]) return '<div class="listing"><label>この Mod は OFF です。MODタブで ON にしてください。</label></div>';
 
     var s = _buildSettingsSection(modId);
-    var a = _buildAchievSection(modId);
-    if (!s && !a) {
+    if (!s) {
       s = '<div class="block" style="padding:0px;margin:8px 4px;">' +
           '<div class="subsection" style="padding:0px;">' +
           '<div class="title">' + (mod.name || mod.id) + '</div>' +
-          '<div class="listing"><label>表示する設定や実績はありません。</label></div>' +
+          '<div class="listing"><label>表示する設定はありません。</label></div>' +
           '</div></div>';
     }
-    return s + a;
+    return s;
   }
 
-  /* =========================================================
-     ゲームネイティブ風 Mods メニュー HTML 生成
-  ========================================================= */
   function _buildModsMenu() {
     try {
       var str = '<div class="section">Mod</div>';
@@ -311,10 +270,6 @@
     }
   }
 
-  /* =========================================================
-     Game.UpdateMenu フック
-     onMenu === 'mods' のときに Mod メニューを描画する
-  ========================================================= */
   function _hookUpdateMenu() {
     if (typeof Game === 'undefined' || typeof Game.UpdateMenu !== 'function') {
       setTimeout(_hookUpdateMenu, 300);
@@ -325,14 +280,11 @@
 
     Game.UpdateMenu = function () {
       _orig.call(this);
-
-      // mods メニューのときだけ上書き描画
       if (Game.onMenu !== 'mods') return;
 
       var menu = document.getElementById('menu');
       if (!menu) return;
 
-      // ネイティブの閉じる(×)ボタンを保持
       var closeBtn = '<div class="close menuClose" ' +
         (Game.clickStr || 'onclick') + '="Game.ShowMenu();">x</div>';
       menu.innerHTML = closeBtn + _buildModsMenu();
@@ -341,18 +293,13 @@
     console.log('[ModLoader] Game.UpdateMenu フック完了');
   }
 
-  /* =========================================================
-     初期化
-  ========================================================= */
   function _init() {
     _loadState();
 
-    // fetch は file:// プロトコルで失敗するため XHR で代替
     var xhr = new XMLHttpRequest();
     xhr.open('GET', MANIFEST_URL + '?_=' + Date.now(), true);
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== XMLHttpRequest.DONE) return;
-      // file:// では status=0、http では status=200 が成功
       var ok = (xhr.status === 200 || xhr.status === 0) && xhr.responseText;
       if (ok) {
         try {
