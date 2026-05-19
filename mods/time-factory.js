@@ -4,6 +4,8 @@
  * 変更点:
  *  - Options への注入と画面右下バッジを廃止
  *  - スライダー・倍率ボタンは MODタブ内の TimeFactory タブ (settings) に移動
+ *  - 100x ボタンを追加（スライダーは従来通り 0.5～10x）
+ *  - セーブ/ロードに対応 (save/load フックを通じて速度を記録)
  */
 
 (function () {
@@ -13,8 +15,9 @@
   var STORAGE_KEY = 'CC_TimeFactory_Speed';
   var BASE_FPS    = 30;
   var MIN_SPEED   = 0.5;
-  var MAX_SPEED   = 10;
-  var PRESETS     = [0.5, 1, 2, 3, 5, 10];
+  var SLIDER_MAX  = 10;        // スライダーで指定できる上限
+  var MAX_SPEED   = 100;       // setSpeed() で許容する上限 (ボタンで 100x)
+  var PRESETS     = [0.5, 1, 2, 3, 5, 10, 100];
 
   var _currentSpeed = 1;
   var _notifTimer   = null;
@@ -97,14 +100,29 @@
       }, 100);
     },
 
+    /* セーブ/ロード フック（mod-loader から呼ばれる） */
+    save: function () {
+      return { speed: _currentSpeed };
+    },
+    load: function (data) {
+      if (!data) return;
+      var v = parseFloat(data.speed);
+      if (!isNaN(v)) {
+        v = Math.min(MAX_SPEED, Math.max(MIN_SPEED, v));
+        _applySpeed(v);
+      }
+    },
+
     settings: function () {
       var fps = (typeof Game !== 'undefined' && Game.fps) ? Game.fps : '-';
       var html = '<div style="padding:6px 4px;">';
       html += '<div style="margin-bottom:8px;">現在の速度: <b>' + _currentSpeed + 'x</b>  ' +
               '<small style="opacity:0.6;">(fps: ' + fps + ')</small></div>';
 
-      html += '<input type="range" min="' + (MIN_SPEED * 10) + '" max="' + (MAX_SPEED * 10) +
-              '" step="1" value="' + (_currentSpeed * 10) + '" ' +
+      // スライダーは MIN_SPEED ～ SLIDER_MAX に固定。100x はボタンのみ。
+      var sliderValue = Math.min(SLIDER_MAX, _currentSpeed) * 10;
+      html += '<input type="range" min="' + (MIN_SPEED * 10) + '" max="' + (SLIDER_MAX * 10) +
+              '" step="1" value="' + sliderValue + '" ' +
               'style="width:100%;cursor:pointer;" ' +
               'oninput="TimeFactory.setSpeed(this.value/10);">';
 
@@ -112,16 +130,19 @@
       for (var i = 0; i < PRESETS.length; i++) {
         var p  = PRESETS[i];
         var on = _currentSpeed === p;
+        var extra = (p === 100)
+          ? 'background:rgba(255,120,120,0.35);border-color:rgba(255,120,120,0.7);'
+          : '';
         var st = on
           ? 'background:rgba(120,200,100,0.35);border-color:rgba(120,200,100,0.7);'
-          : 'opacity:0.7;';
+          : (extra || 'opacity:0.7;');
         html += '<a class="option smallFancyButton" style="' + st + '" ' +
                 'onclick="TimeFactory.setSpeed(' + p + ');return false;">' + p + 'x</a>';
       }
       html += '</div>';
 
       html += '<div style="margin-top:8px;font-size:11px;opacity:0.6;">' +
-              '※ 高速モードはCPU負荷が増加します。セーブデータには影響しません。</div>';
+              '※ 100x は超高速モードです。CPU負荷が大きく増加します。</div>';
       html += '</div>';
       return html;
     },
