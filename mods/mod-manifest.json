@@ -3,7 +3,7 @@
     "id": "smart-helper",
     "name": "SmartHelper",
     "description": "効率ランキング表示・自動購入・GC自動クリック・ラッパー自動pop。右上パネルで個別ON/OFF可能。",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "Sou930",
     "file": "mods/smart-helper.js"
   },
@@ -12,7 +12,7 @@
     "name": "Time Factory",
     "description": "ゲームの進行速度を 0.5x〜10x で変更。Optionsメニューのスライダー・ボタンで操作。設定は自動保存。",
     "version": "1.0.0",
-    "author": "Claude",
+    "author": "Sou930",
     "file": "mods/time-factory.js"
   },
   {
@@ -20,7 +20,7 @@
     "name": "⚔️ Dungeon Explorer",
     "description": "クッキー兵士を派遣して放置ダンジョン探索！素材収集・ボス撃破・装備クラフトで兵士を強化。装備はCpSにもボーナス。",
     "version": "1.0.0",
-    "author": "Claude",
+    "author": "Sou930",
     "file": "mods/dungeon-explorer.js"
   }
 ]
