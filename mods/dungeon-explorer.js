@@ -60,7 +60,8 @@
     DE_ACHIEVEMENTS.forEach(function(a) {
       if (!Game.Achievements[a.name]) {
         new Game.Achievement(a.name, a.desc, a.icon);
-        Game.Achievements[a.name].pool = a.pool || 'shadow';
+        // shadow にすると未開放で表示すらされないため、通常実績扱い(=未開放時"?")にする
+        Game.Achievements[a.name].pool = (a.pool && a.pool !== 'shadow') ? a.pool : '';
       }
     });
     // mod-loader の achievements リストを最新化
