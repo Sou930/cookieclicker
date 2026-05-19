@@ -143,20 +143,67 @@
   };
 
   /* =========================================================
-     ゲームネイティブ風 Mods ブロック HTML 生成
-     main.js の App.writeModUI パターンを踏襲
+     Mod内実績ブロック HTML 生成
+     Game.Achievements から modId に関連する実績を集める
   ========================================================= */
-  function _buildModBlock() {
-    var inner = '';
+  function _buildAchievSection(modId) {
+    if (typeof Game === 'undefined' || !Game.Achievements) return '';
+    var reg = _registered[modId];
+    if (!reg || !reg.achievements || reg.achievements.length === 0) return '';
+
+    var str = '<div class="block" style="padding:0px;margin:8px 4px;">' +
+              '<div class="subsection" style="padding:0px;">' +
+              '<div class="title">Mod内実績</div>' +
+              '<div class="listing crateBox">';
+
+    var found = 0;
+    for (var j = 0; j < reg.achievements.length; j++) {
+      var aName = reg.achievements[j];
+      var a = Game.Achievements[aName];
+      if (a) {
+        str += Game.crate(a, 'stats');
+        found++;
+      }
+    }
+    str += '</div></div></div>';
+    return found > 0 ? str : '';
+  }
+
+  /* =========================================================
+     Mod設定ブロック HTML 生成
+     各Modが settings() 関数を持つ場合はその内容を表示
+  ========================================================= */
+  function _buildSettingsSection(modId) {
+    var reg = _registered[modId];
+    if (!reg || typeof reg.settings !== 'function') return '';
+    var html = '';
+    try { html = reg.settings(); } catch(e) { return ''; }
+    if (!html) return '';
+    return '<div class="block" style="padding:0px;margin:8px 4px;">' +
+           '<div class="subsection" style="padding:0px;">' +
+           '<div class="title">Mod設定</div>' +
+           '<div class="listing">' + html + '</div>' +
+           '</div></div>';
+  }
+
+  /* =========================================================
+     ゲームネイティブ風 Mods メニュー HTML 生成
+  ========================================================= */
+  function _buildModsMenu() {
+    var str = '<div class="section">Mod</div>';
+
+    // ── Mod一覧 ON/OFF ────────────────────────────────────
+    str += '<div class="block" style="padding:0px;margin:8px 4px;">' +
+           '<div class="subsection" style="padding:0px;">' +
+           '<div class="title">Mod一覧</div>';
 
     if (_manifest.length === 0) {
-      inner = '<div class="listing"><label>mods/mod-manifest.json にMODが登録されていません。</label></div>';
+      str += '<div class="listing"><label>mods/mod-manifest.json にMODが登録されていません。</label></div>';
     } else {
       for (var i = 0; i < _manifest.length; i++) {
         var mod  = _manifest[i];
         var isOn = !!_enabled[mod.id];
 
-        // ON ボタン: 有効時は視覚的に強調
         var onStyle  = isOn
           ? 'background:rgba(120,200,100,0.35);border-color:rgba(120,200,100,0.7);'
           : 'opacity:0.45;';
@@ -164,7 +211,7 @@
           ? 'background:rgba(200,80,80,0.35);border-color:rgba(200,80,80,0.7);'
           : 'opacity:0.45;';
 
-        inner +=
+        str +=
           '<div class="listing">' +
             '<a class="option smallFancyButton" style="' + onStyle + '" ' +
               'onclick="ModLoader_toggle(\'' + mod.id + '\');return false;">' +
@@ -174,34 +221,41 @@
               'onclick="ModLoader_toggle(\'' + mod.id + '\');return false;">' +
               'OFF' +
             '</a>' +
-            '<b style="margin-left:8px;">' + mod.name + '</b>' +
-            (mod.version
-              ? ' <small style="opacity:0.5;">v' + mod.version + '</small>'
-              : '') +
-            (mod.author
-              ? ' <small style="opacity:0.5;">by ' + mod.author + '</small>'
-              : '') +
-            (mod.description
-              ? '<br><label>' + mod.description + '</label>'
-              : '') +
+            ' <b style="margin-left:4px;">' + (mod.name || mod.id) + '</b>' +
+            (mod.version ? ' <small style="opacity:0.5;">v' + mod.version + '</small>' : '') +
+            (mod.author  ? ' <small style="opacity:0.5;">by ' + mod.author + '</small>' : '') +
+            (mod.description ? '<br><label>' + mod.description + '</label>' : '') +
           '</div>';
       }
     }
+    str += '</div></div>';
 
-    return (
-      '<div id="modLoaderBlock" class="block" style="padding:0px;margin:8px 4px;">' +
-        '<div class="subsection" style="padding:0px;">' +
-          '<div class="title">Mods</div>' +
-          inner +
-        '</div>' +
-      '</div>'
-    );
+    // ── ロード中Modごとの設定 & 実績 ──────────────────────
+    for (var k = 0; k < _manifest.length; k++) {
+      var m = _manifest[k];
+      if (!_enabled[m.id]) continue;
+      str += _buildSettingsSection(m.id);
+      str += _buildAchievSection(m.id);
+    }
+
+    // ── サードパーティ実績（shadow: Third-party 等） ───────
+    if (typeof Game !== 'undefined' && Game.Achievements && Game.Achievements['Third-party']) {
+      str += '<div class="block" style="padding:0px;margin:8px 4px;">' +
+             '<div class="subsection" style="padding:0px;">' +
+             '<div class="title">Mod関連実績</div>' +
+             '<div class="listing crateBox">' +
+             Game.crate(Game.Achievements['Third-party'], 'stats') +
+             '</div>' +
+             '</div></div>';
+    }
+
+    str += '<div style="height:128px;"></div>';
+    return str;
   }
 
   /* =========================================================
      Game.UpdateMenu フック
-     main.js 6954行: str+='<div style="height:128px;"></div>';
-     の直前（= prefs ブロック末尾）に Mods ブロックを差し込む
+     onMenu === 'mods' のときに Mod メニューを描画する
   ========================================================= */
   function _hookUpdateMenu() {
     if (typeof Game === 'undefined' || typeof Game.UpdateMenu !== 'function') {
@@ -214,34 +268,13 @@
     Game.UpdateMenu = function () {
       _orig.call(this);
 
-      if (Game.onMenu !== 'prefs') return;
+      // mods メニューのときだけ上書き描画
+      if (Game.onMenu !== 'mods') return;
 
       var menu = document.getElementById('menu');
       if (!menu) return;
 
-      // 前回のMODブロックを除去
-      var old = document.getElementById('modLoaderBlock');
-      if (old) old.parentNode.removeChild(old);
-
-      // 新しいMODブロックを生成
-      var wrapper = document.createElement('div');
-      wrapper.innerHTML = _buildModBlock();
-      var block = wrapper.firstChild; // #modLoaderBlock
-
-      // height:128px スペーサーの直前に挿入（なければ末尾）
-      var spacer = null;
-      var ch = menu.children;
-      for (var i = ch.length - 1; i >= 0; i--) {
-        if (ch[i].style && ch[i].style.height === '128px') {
-          spacer = ch[i];
-          break;
-        }
-      }
-      if (spacer) {
-        menu.insertBefore(block, spacer);
-      } else {
-        menu.appendChild(block);
-      }
+      menu.innerHTML = _buildModsMenu();
     };
 
     console.log('[ModLoader] Game.UpdateMenu フック完了');
