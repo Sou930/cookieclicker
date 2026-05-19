@@ -61,7 +61,7 @@
       if (!Game.Achievements[a.name]) {
         new Game.Achievement(a.name, a.desc, a.icon);
         // shadow にすると未開放で表示すらされないため、通常実績扱い(=未開放時"?")にする
-        Game.Achievements[a.name].pool = (a.pool && a.pool !== 'shadow') ? a.pool : '';
+        Game.Achievements[a.name].pool = 'mod';  // 通常実績欄に表示せず MOD実績欄でのみ表示
       }
     });
     // mod-loader の achievements リストを最新化
@@ -825,6 +825,20 @@
       id: MOD_ID,
       achievements: DE_ACHIEVEMENTS.map(function(a){ return a.name; }),
 
+      settings: function(){
+        var visible = !!(window.DungeonExplorer && window.DungeonExplorer._visible);
+        var st = visible
+          ? 'background:rgba(120,200,100,0.35);border-color:rgba(120,200,100,0.7);'
+          : '';
+        return '<div style="padding:6px 4px;">' +
+                 '<div style="margin-bottom:8px;">⚔ ダンジョン探索パネルを開閉します。</div>' +
+                 '<a class="option smallFancyButton" style="' + st + '" ' +
+                    'onclick="if(window.DungeonExplorer){DungeonExplorer.toggle();}return false;">' +
+                    (visible ? 'パネルを閉じる' : 'パネルを開く') +
+                 '</a>' +
+               '</div>';
+      },
+
       init: function(){
         loadState();
         var tries = 0;
@@ -839,8 +853,7 @@
               registerAchievements();
               hookGame();
               createPanel();
-              createToggleButton();
-              /* 前回探索中だった場合は再開 */
+                            /* 前回探索中だった場合は再開 */
               if (state.exploring && state.activeDungeon) {
                 state.exploring = false;
                 startExplore(state.activeDungeon);
