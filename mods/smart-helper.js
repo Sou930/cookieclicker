@@ -5,6 +5,9 @@
  *  - フローティングカード UI を廃止
  *  - 設定とランキングは MODタブ内の SmartHelper タブ (settings) に移動
  *  - アップグレード購入の優先度を下げた（効率値を ×2.5 に補正）
+ *  - 【バグ修正】_shortNum 未定義により settings() が例外を投げ
+ *    SmartHelper タブの中身が表示されなかったのを修正
+ *  - セーブ/ロードに対応 (save/load フックで config を保存)
  */
 
 (function () {
@@ -33,6 +36,26 @@
   /* アップグレード優先度低下用の倍率
      ＝ 大きいほどアップグレードが後回しになる */
   var UPGRADE_PRIORITY_PENALTY = 2.5;
+
+  /* =========================================================
+     数値フォーマット（_shortNum）
+     ※ これが未定義だったため settings() で例外が出ていた
+  ========================================================= */
+  function _shortNum(n) {
+    if (n === Infinity || n === -Infinity) return '∞';
+    if (typeof n !== 'number' || isNaN(n)) return '-';
+    if (typeof Beautify === 'function') {
+      try { return Beautify(n); } catch (e) {}
+    }
+    var abs = Math.abs(n);
+    if (abs < 1000) {
+      return (abs < 10 ? n.toFixed(2) : abs < 100 ? n.toFixed(1) : Math.round(n).toString());
+    }
+    var units = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+    var i = Math.floor(Math.log10(abs) / 3);
+    if (i >= units.length) i = units.length - 1;
+    return (n / Math.pow(1000, i)).toFixed(2) + units[i];
+  }
 
   /* =========================================================
      タイマー管理
@@ -167,9 +190,6 @@ function _upgradeDeltaCps(up) {
 /* =========================================================
    アップグレード効率
 ========================================================= */
-
-/* 大きいほどアップグレードが後回し */
-var UPGRADE_PRIORITY_PENALTY = 5;
 
 function _upgradeEfficiency(up) {
   if (!up || typeof up.getPrice !== 'function') {
@@ -467,6 +487,21 @@ function _getRankedList() {
           _applyConfig();
           console.log('[SmartHelper] 起動。MODタブの SmartHelper から設定可能。');
         }, 1000);
+      },
+
+      /* セーブ/ロード フック */
+      save: function () {
+        return { config: config };
+      },
+      load: function (data) {
+        if (!data || !data.config) return;
+        for (var k in data.config) {
+          if (Object.prototype.hasOwnProperty.call(data.config, k) &&
+              Object.prototype.hasOwnProperty.call(config, k)) {
+            config[k] = data.config[k];
+          }
+        }
+        _applyConfig();
       },
 
       settings: function () {
