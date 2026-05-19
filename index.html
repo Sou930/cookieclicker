@@ -46,31 +46,27 @@ Feel free to alter this code to your liking, but please do not re-host it, do no
 </head>
 <body>
 
-<div id="topBar">
-    <!-- 既存の言語切り替えボタンはそのまま -->
-    <div style="float:right;position:relative;">
-        <!-- 言語切り替えボタン（既存） -->
-        <div id="tinyglobe" ...></div>
-        <a id="changeLanguage" ...>Change language</a>
-    </div>
-    <div id="topBarEnd" style="float:right;padding:0px;"></div>...
+<div id="wrapper">
 
-    <!-- ↓以下を追加（非表示で問題なし） -->
-    <div id="heralds" style="display:none;"><span id="heraldsAmount">?</span></div>
-    <span id="httpsSwitch" style="display:none;"></span>
-    <span id="textareaPrompt" style="display:none;"></span>
-    <a id="topbarOtherVersions" style="display:none;">Other versions</a>
-    <a id="topbarOrteil" style="display:none;"></a>
-    <a id="topbarTumblr" style="display:none;"></a>
-    <a id="topbarTwitter" style="display:none;"></a>
-    <a id="topbarDashnet" style="display:none;"></a>
-    <a id="topbarDiscord" style="display:none;"></a>
-    <a id="topbarMerch" style="display:none;"></a>
-    <a id="topbarMobileCC" style="display:none;"></a>
-    <a id="topbarSteamCC" style="display:none;"></a>
-    <a id="topbarRandomgen" style="display:none;"></a>
-    <a id="topbarIGM" style="display:none;"></a>
-</div>
+	<div id="topBar">
+		<div style="float:right;position:relative;"><div id="tinyglobe" style="position:absolute;top:-4px;width:22px;height:22px;background:url(img/tinyglobeSheet.gif);right:4px;top:4px;pointer-events:none;"></div><a id="changeLanguage" style="font-variant:small-caps;padding-right:20px;" onmouseover="INTERVAL_TINYGLOBE=setInterval(function(){var tinyglobe=document.getElementById('tinyglobe');tinyglobe.style.backgroundPosition=(parseInt(tinyglobe.style.backgroundPosition)-22)+'px';},30);" onmouseout="clearInterval(INTERVAL_TINYGLOBE);">Change language</a><script>document.getElementById('tinyglobe').style.backgroundPosition=(-[0,19,27][Math.floor(Math.random()*3)]*22)+'px';</script></div>
+		<div id="topBarEnd" style="float:right;padding:0px;"></div>
+
+		<!-- main.js が参照するトップバー要素（非表示） -->
+		<div id="heralds" style="display:none;"><span id="heraldsAmount">?</span></div>
+		<span id="httpsSwitch" style="display:none;"></span>
+		<a id="topbarOtherVersions" style="display:none;">Other versions</a>
+		<a id="topbarOrteil" style="display:none;"></a>
+		<a id="topbarTumblr" style="display:none;"></a>
+		<a id="topbarTwitter" style="display:none;"></a>
+		<a id="topbarDashnet" style="display:none;"></a>
+		<a id="topbarDiscord" style="display:none;"></a>
+		<a id="topbarMerch" style="display:none;"></a>
+		<a id="topbarMobileCC" style="display:none;"></a>
+		<a id="topbarSteamCC" style="display:none;"></a>
+		<a id="topbarRandomgen" style="display:none;"></a>
+		<a id="topbarIGM" style="display:none;"></a>
+	</div>
 
 	<div id="game">
 		<div id="versionNumber" class="title"></div>
@@ -163,6 +159,69 @@ Feel free to alter this code to your liking, but please do not re-host it, do no
 		
 		<div id="tooltipAnchor"><div id="tooltip" class="framed" onMouseOut="Game.tooltip.hide();"></div></div>
 		<div id="preloadImages" style="display:none;"></div>
+
+		<!-- main.js が参照する非表示要素群 -->
+		<div style="display:none;">
+			<!-- アセンド画面 -->
+			<div id="ascendHCs"></div>
+			<div id="ascendPrestige"></div>
+			<a id="ascendModeButton"></a>
+
+			<!-- ベーカリー名入力 -->
+			<input id="bakeryNameInput" type="text">
+
+			<!-- ストア -->
+			<div id="storeBulkMax"></div>
+
+			<!-- アップグレードスロット -->
+			<div id="upgradeToSlotWrap"><div id="upgradeToSlotNone"></div></div>
+
+			<!-- ランプ -->
+			<div id="lumpsIcon"></div>
+			<div id="lumpsIcon2"></div>
+			<span id="lumpsAmount"></span>
+
+			<!-- ドラゴン -->
+			<div id="dragonAuraInfo"></div>
+
+			<!-- ビルディング -->
+			<div id="buildingsMute"></div>
+
+			<!-- ジュークボックス -->
+			<div id="jukeboxPlayer"></div>
+			<div id="jukeboxOnTrack"></div>
+			<div id="jukeboxOnTrackAuthor"></div>
+			<div id="jukeboxOnSound"></div>
+			<span id="jukeboxOnSoundN"></span>
+			<div id="jukeboxTrackSelect"></div>
+			<div id="jukeboxSoundSelect"></div>
+			<div id="jukeboxMusicPlay"></div>
+			<div id="jukeboxMusicLoop"></div>
+			<div id="jukeboxMusicAuto"></div>
+			<div id="jukeboxMusicScrub"></div>
+			<span id="jukeboxMusicScrubElapsed"></span>
+			<span id="jukeboxMusicTime"></span>
+			<span id="jukeboxMusicTotalTime"></span>
+
+			<!-- ギフト -->
+			<div id="giftPromptContainer">
+				<div id="giftPromptSelector"></div>
+			</div>
+			<div id="giftBoxIcon"></div>
+			<div id="giftBoxIconNone"></div>
+			<div id="giftBoxDesign"></div>
+			<input id="giftCode" type="text">
+			<span id="giftAmount"></span>
+			<div id="giftMessage"></div>
+			<div id="giftError"></div>
+
+			<!-- 言語選択 -->
+			<div id="languageSelectHeader"></div>
+
+			<!-- その他 -->
+			<div id="promptOption0"></div>
+			<textarea id="textareaPrompt"></textarea>
+		</div>
 
 	</div>
 
