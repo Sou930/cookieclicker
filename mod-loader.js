@@ -276,7 +276,10 @@
       var menu = document.getElementById('menu');
       if (!menu) return;
 
-      menu.innerHTML = _buildModsMenu();
+      // ネイティブの閉じる(×)ボタンを保持
+      var closeBtn = '<div class="close menuClose" ' +
+        (Game.clickStr || 'onclick') + '="Game.ShowMenu();">x</div>';
+      menu.innerHTML = closeBtn + _buildModsMenu();
     };
 
     console.log('[ModLoader] Game.UpdateMenu フック完了');
