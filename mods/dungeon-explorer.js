@@ -25,6 +25,83 @@
   var SAVE_KEY = 'CC_DungeonExplorer_v2';
 
   /* ============================================================
+     実績定義  ―  mods/achievements/dungeon-explorer.json から読み込む
+  ============================================================ */
+  var ACHIEVEMENTS_JSON_URL = 'mods/achievements/dungeon-explorer.json';
+  var DE_ACHIEVEMENTS = [];  // XHR 完了後に格納される
+
+  function loadAchievementsJson(callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', ACHIEVEMENTS_JSON_URL + '?_=' + Date.now(), true);
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== XMLHttpRequest.DONE) return;
+      var ok = (xhr.status === 200 || xhr.status === 0) && xhr.responseText;
+      if (ok) {
+        try {
+          DE_ACHIEVEMENTS = JSON.parse(xhr.responseText);
+        } catch(e) {
+          console.warn('[DungeonExplorer] achievements JSON パースエラー:', e);
+        }
+      } else {
+        console.warn('[DungeonExplorer] achievements JSON 読み込み失敗 status=' + xhr.status);
+      }
+      if (callback) callback();
+    };
+    xhr.onerror = function() {
+      console.warn('[DungeonExplorer] achievements JSON XHR エラー');
+      if (callback) callback();
+    };
+    xhr.send();
+  }
+
+  /* 実績を登録してゲームに追加 */
+  function registerAchievements() {
+    if (typeof Game === 'undefined' || !Game.Achievement) return;
+    DE_ACHIEVEMENTS.forEach(function(a) {
+      if (!Game.Achievements[a.name]) {
+        new Game.Achievement(a.name, a.desc, a.icon);
+        Game.Achievements[a.name].pool = a.pool || 'shadow';
+      }
+    });
+    // mod-loader の achievements リストを最新化
+    if (window.CookieClickerMods && window.CookieClickerMods._registered) {
+      var reg = window.CookieClickerMods._registered[MOD_ID];
+      if (reg) reg.achievements = DE_ACHIEVEMENTS.map(function(a){ return a.name; });
+    }
+  }
+
+  /* 実績を解除 */
+  function winAchiev(name) {
+    if (typeof Game === 'undefined' || !Game.Win) return;
+    if (Game.Achievements[name] && !Game.Achievements[name].won) {
+      Game.Win(name);
+    }
+  }
+
+  /* 現在の状態に応じて実績チェック */
+  function checkAchievements() {
+    // 初陣: 一度でも探索を開始したか（totalFloorsで判定）
+    if (state.totalFloors >= 1) winAchiev('初陣');
+    // ボスハンター
+    if (state.totalBossKills >= 1) winAchiev('ボスハンター');
+    // 百戦錬磨
+    if (state.totalBossKills >= 10) winAchiev('百戦錬磨');
+    // 百フロア踏破
+    if (state.totalFloors >= 100) winAchiev('百フロア踏破');
+    // 精鋭部隊
+    if (state.soldiers >= 50) winAchiev('精鋭部隊');
+    // 伝説の兵団
+    if (state.soldierLevel >= 10) winAchiev('伝説の兵団');
+    // 全装備制覇: 全スロットが埋まっているか
+    var slots = {};
+    EQUIPMENT.forEach(function(eq) { slots[eq.slot] = true; });
+    var allCrafted = Object.keys(slots).every(function(slot) {
+      return !!state.equippedItems[slot];
+    });
+    if (allCrafted) winAchiev('全装備制覇');
+  }
+
+  /* ============================================================
      ゲームデータ定義
   ============================================================ */
 
@@ -190,6 +267,7 @@
     for (var mat in eq.recipe) { state.inventory[mat] -= eq.recipe[mat]; }
     state.equippedItems[eq.slot] = eq.id;
     addLog('🔨 ' + eq.icon + eq.name + ' を装備！戦力+' + eq.power);
+    checkAchievements();
     renderPanel();
     return true;
   }
@@ -234,6 +312,10 @@
     addLog('⚔️ ' + dng.emoji + ' ' + dng.name + ' F' + state.floor + ' 探索開始！');
     renderPanel();
     _exploreTimer = setInterval(function(){ exploreTick(); }, dng.tickMs);
+    // 実績チェック（初陣は totalFloors が増えた後にも走るが、開始フラグとして）
+    if (state.totalFloors === 0) {
+      // フロアが増えるまで待つので exploreTick 側で検出される
+    }
   }
 
   function stopExplore() {
@@ -272,9 +354,12 @@
         addLog('🏆 ' + dng.boss + ' 撃破！ [' + bossLoot + ']' + extra + ' をゲット！');
         if (typeof Game !== 'undefined' && Game.Notify)
           Game.Notify('⚔️ ボス撃破！', dng.boss+' を倒した！\n['+bossLoot+'] を入手', [14,6], 4);
+        // 魔王撃破チェック
+        if (dng.id === 'demoncastle') winAchiev('魔王討伐');
         state.floor++;
         state.totalFloors++;
         state.progress = 0;
+        checkAchievements();
       }
     } else {
       state.progress += advance;
@@ -294,6 +379,7 @@
         state.floor++;
         state.totalFloors++;
         addLog('🚶 F' + state.floor + ' へ進んだ！');
+        checkAchievements();
       }
     }
     renderPanel();
@@ -643,6 +729,7 @@
       Game.Spend(cost);
       state.soldiers++;
       addLog('🪖 兵士を1人雇用！(合計: '+state.soldiers+'人)');
+      checkAchievements();
       saveState(); renderPanel();
     },
 
@@ -655,6 +742,7 @@
       Game.Spend(cost);
       state.soldierLevel++;
       addLog('⬆ 兵士がLv.'+state.soldierLevel+' になった！');
+      checkAchievements();
       saveState(); renderPanel();
     },
 
@@ -734,6 +822,7 @@
   if (window.CookieClickerMods) {
     window.CookieClickerMods.register({
       id: MOD_ID,
+      achievements: DE_ACHIEVEMENTS.map(function(a){ return a.name; }),
 
       init: function(){
         loadState();
@@ -744,15 +833,21 @@
               && typeof Game.registerHook === 'function'
               && typeof Game.Earn === 'function') {
             clearInterval(iv);
-            hookGame();
-            createPanel();
-            createToggleButton();
-            /* 前回探索中だった場合は再開 */
-            if (state.exploring && state.activeDungeon) {
-              state.exploring = false;
-              startExplore(state.activeDungeon);
-            }
-            console.log('[DungeonExplorer] 起動完了。右下の ⚔ ボタンで開く。');
+            // まず実績JSONを読み込んでから初期化を続行
+            loadAchievementsJson(function() {
+              registerAchievements();
+              hookGame();
+              createPanel();
+              createToggleButton();
+              /* 前回探索中だった場合は再開 */
+              if (state.exploring && state.activeDungeon) {
+                state.exploring = false;
+                startExplore(state.activeDungeon);
+              }
+              /* ロード時に既存の進捗に対して実績チェック */
+              checkAchievements();
+              console.log('[DungeonExplorer] 起動完了。右下の ⚔ ボタンで開く。');
+            });
           }
           if (tries > 200) clearInterval(iv);
         }, 100);
