@@ -1,330 +1,381 @@
 /**
- * mod-loader.js  ―  Cookie Clicker MOD Loader
- * =============================================
- * 配置: リポジトリルート (index.html と同じ階層)
- *
- * index.html の </body> 直前に追加:
- *   <script src="mod-loader.js"></script>
- *
- * 動作:
- *   - mods/mod-manifest.json からMOD一覧を読み込む
- *   - LocalStorage でON/OFF状態を永続化
- *   - Game.UpdateMenu を上書きし、Options の末尾に
- *     ゲームネイティブなスタイルの "Mods" セクションを追加
- *   - ONのMODは <script> タグで動的ロード → init() 呼び出し
- *   - OFFにすると disable() を呼んでからタグを削除
+ * smart-helper.js  ―  Cookie Clicker スマートヘルパー MOD
+ * UI は MOD メニュー内に統合されます。
  */
 
 (function () {
   'use strict';
 
   /* =========================================================
-     定数
+     設定
   ========================================================= */
-  var MANIFEST_URL = 'mods/mod-manifest.json';
-  var STORAGE_KEY  = 'CC_ModsEnabled';
-
-  /* =========================================================
-     グローバル公開API  ―  各MODファイルが呼び出す
-  ========================================================= */
-  var _registered  = {};  // { modId: modObject }
-  var _pendingInit = {};  // ロード済みだが register() 前のもの
-
-  window.CookieClickerMods = {
-    /**
-     * MODを登録する。MODファイルの末尾で必ず呼ぶ。
-     * @param {{ id:string, init:function, disable:function }} mod
-     */
-    register: function (mod) {
-      if (!mod || !mod.id) {
-        console.error('[ModLoader] register(): id が必要です');
-        return;
-      }
-      _registered[mod.id] = mod;
-      // すでに有効化が要求されていたら即 init
-      if (_pendingInit[mod.id]) {
-        delete _pendingInit[mod.id];
-        if (typeof mod.init === 'function') {
-          try { mod.init(); }
-          catch (e) { console.error('[ModLoader] init() エラー (' + mod.id + '):', e); }
-        }
-      }
-    },
-    /** 登録済みMODオブジェクトへの参照（achievements の後付け更新用） */
-    _registered: _registered
+  var STORAGE_KEY = 'CC_SmartHelper_Config';
+  var config = {
+    autoBuy          : false,
+    autoBuyInterval  : 1000,
+    autoGC           : false,
+    autoGCInterval   : 500,
+    skipWrath        : true,
+    autoPopWrinkler  : false,
+    autoPopInterval  : 5000,
+    skipShinyWrinkler: true,
+    tableRows        : 10,
+    autoClick        : false,
+    autoClickInterval: 50,
   };
 
-  /* =========================================================
-     内部状態
-  ========================================================= */
-  var _manifest = [];  // mod-manifest.json の配列
-  var _enabled  = {};  // { modId: bool }
-  var _scripts  = {};  // { modId: <script>要素 }
-
-  /* =========================================================
-     LocalStorage
-  ========================================================= */
-  function _saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_enabled)); } catch (e) {}
+  function _saveConfig() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); } catch(e) {}
   }
-  function _loadState() {
+  function _loadConfig() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) _enabled = JSON.parse(raw);
-    } catch (e) {}
-  }
-
-  /* =========================================================
-     スクリプト動的ロード / アンロード
-  ========================================================= */
-  function _loadScript(mod, onReady) {
-    if (_scripts[mod.id]) { if (onReady) onReady(); return; }
-    var s = document.createElement('script');
-    // 外部URL（http/https）はキャッシュバスターを付けない（CORS・ネットワーク問題を避ける）
-    var isExternal = /^https?:\/\//.test(mod.file);
-    s.src = isExternal ? mod.file : (mod.file + '?_=' + Date.now());
-    s.onload = function () { _scripts[mod.id] = s; if (onReady) onReady(); };
-    s.onerror = function () {
-      console.error('[ModLoader] 読み込み失敗:', mod.file);
-      // 失敗してもゲーム起動をブロックしないよう onReady を呼ぶ
-      if (onReady) onReady();
-    };
-    document.body.appendChild(s);
-  }
-
-  function _unloadScript(modId) {
-    var s = _scripts[modId];
-    if (s && s.parentNode) s.parentNode.removeChild(s);
-    delete _scripts[modId];
-    delete _registered[modId];
-    delete _pendingInit[modId];
-  }
-
-  /* =========================================================
-     MOD ON / OFF
-  ========================================================= */
-  function _enableMod(mod) {
-    _pendingInit[mod.id] = true;
-    _loadScript(mod, function () {
-      if (_pendingInit[mod.id]) {
-        delete _pendingInit[mod.id];
-        var reg = _registered[mod.id];
-        if (reg && typeof reg.init === 'function') {
-          try { reg.init(); }
-          catch (e) { console.error('[ModLoader] init() エラー (' + mod.id + '):', e); }
-        }
+      if (raw) {
+        var saved = JSON.parse(raw);
+        for (var k in saved) if (k in config) config[k] = saved[k];
       }
-    });
-    _enabled[mod.id] = true;
-    _saveState();
-  }
-
-  function _disableMod(mod) {
-    var reg = _registered[mod.id];
-    if (reg && typeof reg.disable === 'function') {
-      try { reg.disable(); }
-      catch (e) { console.error('[ModLoader] disable() エラー (' + mod.id + '):', e); }
-    }
-    _unloadScript(mod.id);
-    _enabled[mod.id] = false;
-    _saveState();
+    } catch(e) {}
   }
 
   /* =========================================================
-     トグル  ―  オプション画面のボタン onclick から呼ばれる
+     タイマー管理
   ========================================================= */
-  window.ModLoader_toggle = function (modId) {
-    var mod = null;
-    for (var i = 0; i < _manifest.length; i++) {
-      if (_manifest[i].id === modId) { mod = _manifest[i]; break; }
+  var _timers = {};
+
+  function _startTimer(key, fn, ms) {
+    _stopTimer(key);
+    _timers[key] = setInterval(function () {
+      try { fn(); } catch (e) { console.error('[SmartHelper] timer error (' + key + '):', e); }
+    }, ms);
+  }
+  function _stopTimer(key) {
+    if (_timers[key]) { clearInterval(_timers[key]); delete _timers[key]; }
+  }
+  function _stopAllTimers() {
+    Object.keys(_timers).forEach(function (k) { _stopTimer(k); });
+  }
+
+  /* =========================================================
+     安全ガード
+  ========================================================= */
+  function _gameReady() {
+    return (
+      typeof Game !== 'undefined' && Game &&
+      Game.Objects && Game.UpgradesInStore &&
+      Array.isArray(Game.UpgradesInStore)
+    );
+  }
+
+  function _whenReady(fn, retryMs) {
+    retryMs = retryMs || 1000;
+    function check() {
+      if (_gameReady()) {
+        try { fn(); } catch (e) { console.error('[SmartHelper] ready hook error:', e); }
+        return;
+      }
+      setTimeout(check, retryMs);
     }
-    if (!mod) return;
-    if (_enabled[modId]) { _disableMod(mod); } else { _enableMod(mod); }
-    // メニューを即再描画
-    if (typeof Game !== 'undefined' && Game.UpdateMenu) Game.UpdateMenu();
+    check();
+  }
+
+  /* =========================================================
+     効率計算
+     建物・アップグレード共に「ΔCpS」を Game.CalculateGains の差分で取得し、
+     回収秒 = price / ΔCpS で同じスケールで順位付けする。
+  ========================================================= */
+  function _buildingDeltaCps(obj) {
+    if (!obj) return 0;
+    try {
+      var before = Game.cookiesPs;
+      obj.amount += 1;
+      Game.CalculateGains();
+      var after = Game.cookiesPs;
+      obj.amount -= 1;
+      Game.CalculateGains();
+      return Math.max(after - before, 0);
+    } catch (e) {
+      return (obj.storedCps || 0) * (Game.globalCpsMult || 1);
+    }
+  }
+
+  function _upgradeDeltaCps(up) {
+    if (!up) return 0;
+    try {
+      var before = Game.cookiesPs;
+      var prev = up.bought;
+      up.bought = 1;
+      Game.CalculateGains();
+      var after = Game.cookiesPs;
+      up.bought = prev;
+      Game.CalculateGains();
+      return Math.max(after - before, 0);
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function _buildingEfficiency(obj) {
+    if (!obj) return Infinity;
+    var price    = obj.price || 0;
+    var deltaCps = _buildingDeltaCps(obj);
+    if (deltaCps <= 0) return Infinity;
+    return price / deltaCps;
+  }
+
+  function _upgradeEfficiency(up) {
+    if (!up || typeof up.getPrice !== 'function') return Infinity;
+    var price    = up.getPrice();
+    var deltaCps = _upgradeDeltaCps(up);
+    if (deltaCps <= 0) return Infinity;
+    return price / deltaCps;
+  }
+
+  function _getRankedList() {
+    if (!_gameReady()) return [];
+    var list = [];
+
+    for (var name in Game.Objects) {
+      if (!Object.prototype.hasOwnProperty.call(Game.Objects, name)) continue;
+      var obj = Game.Objects[name];
+      if (!obj) continue;
+      list.push({
+        name   : obj.name || name,
+        price  : obj.price || 0,
+        eff    : _buildingEfficiency(obj),
+        canBuy : (Game.cookies || 0) >= (obj.price || 0),
+        type   : 'building',
+        ref    : obj
+      });
+    }
+
+    for (var i = 0; i < Game.UpgradesInStore.length; i++) {
+      var up = Game.UpgradesInStore[i];
+      if (!up || up.bought) continue;
+      if (up.pool === 'prestige' || up.pool === 'debug' || up.pool === 'toggle') continue;
+      if (typeof up.isVaulted === 'function' && up.isVaulted()) continue;
+      if (up.priceLumps > 0) continue;
+      var eff = _upgradeEfficiency(up);
+      // ΔCpS が取れないアップグレード(クリック系・追加要素など)は自動購入対象外
+      if (eff === Infinity) continue;
+      list.push({
+        name   : up.dname || up.name || ('upgrade-' + i),
+        price  : typeof up.getPrice === 'function' ? up.getPrice() : (up.price || 0),
+        eff    : eff,
+        canBuy : typeof up.canBuy === 'function' ? up.canBuy() : false,
+        type   : 'upgrade',
+        ref    : up
+      });
+    }
+
+    list.sort(function (a, b) { return a.eff - b.eff; });
+    return list;
+  }
+
+  function _shortNum(n) {
+    if (n === Infinity) return '∞';
+    if (typeof n !== 'number' || isNaN(n)) return '0';
+    var units = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+    var i = 0;
+    while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
+    return (i === 0 ? Math.round(n) : n.toFixed(2)) + units[i];
+  }
+
+  function _currentCps() {
+    if (!_gameReady()) return 0;
+    return (Game.cookiesPs || 0) * (1 - (Game.cpsSucked || 0)) + (Game.computedMouseCps || 0);
+  }
+
+  /* =========================================================
+     自動クッキークリック
+  ========================================================= */
+  function _autoClickTick() {
+    if (!_gameReady() || Game.OnAscend) return;
+    try {
+      var cookie = document.getElementById('bigCookie');
+      if (cookie) cookie.click();
+    } catch (e) { console.error('[SmartHelper] autoClick error:', e); }
+  }
+
+  /* =========================================================
+     自動購入
+  ========================================================= */
+  function _autoBuyTick() {
+    if (!_gameReady() || Game.OnAscend || Game.AscendTimer > 0) return;
+    var list = _getRankedList();
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i];
+      if (!item.canBuy) continue;
+      try { item.ref.buy(1); return; } catch (e) { console.error('[SmartHelper] autoBuy error:', e); }
+    }
+  }
+
+  /* =========================================================
+     自動ゴールデンクッキークリック
+  ========================================================= */
+  function _autoGCTick() {
+    if (!_gameReady() || Game.OnAscend) return;
+    var shimmers = Game.shimmers || [];
+    for (var i = shimmers.length - 1; i >= 0; i--) {
+      var s = shimmers[i];
+      if (!s) continue;
+      if (s.type !== 'golden' && s.type !== 'reindeer') continue;
+      if (config.skipWrath && s.wrath) continue;
+      try { if (typeof s.pop === 'function') s.pop(); } catch (e) { console.error('[SmartHelper] autoGC error:', e); }
+    }
+  }
+
+  /* =========================================================
+     自動ラッパーpop
+  ========================================================= */
+  function _autoPopWrinklerTick() {
+    if (!_gameReady()) return;
+    var wrinklers = Game.wrinklers || [];
+    for (var i = 0; i < wrinklers.length; i++) {
+      var w = wrinklers[i];
+      if (!w || w.phase !== 2) continue;
+      if (config.skipShinyWrinkler && w.type === 1) continue;
+      try { w.hp = 0; } catch (e) { console.error('[SmartHelper] wrinkler error:', e); }
+    }
+  }
+
+  /* =========================================================
+     MOD メニュー内 UI (settings コールバック)
+  ========================================================= */
+  function _renderSettings() {
+    var html = '';
+
+    // ── 設定トグル ──
+    function row(key, label, desc) {
+      var on = !!config[key];
+      var onStyle  = on  ? 'background:rgba(120,200,100,0.35);border-color:rgba(120,200,100,0.7);' : 'opacity:0.45;';
+      var offStyle = !on ? 'background:rgba(200,80,80,0.35);border-color:rgba(200,80,80,0.7);'    : 'opacity:0.45;';
+      return (
+        '<div class="listing">' +
+          '<a class="option smallFancyButton" style="' + onStyle + '" ' +
+            'onclick="SmartHelper.toggle(\'' + key + '\', true);return false;">ON</a>' +
+          '<a class="option smallFancyButton" style="' + offStyle + '" ' +
+            'onclick="SmartHelper.toggle(\'' + key + '\', false);return false;">OFF</a>' +
+          ' <b style="margin-left:4px;">' + label + '</b>' +
+          (desc ? '<br><label>' + desc + '</label>' : '') +
+        '</div>'
+      );
+    }
+
+    html +=
+      row('autoClick',         '🖱️ 自動クリック',      '毎' + config.autoClickInterval + 'msクッキーをクリック') +
+      row('autoBuy',           '🛒 自動購入',           '最効率の建物・アップグレードを自動購入') +
+      row('autoGC',            '✨ GC自動クリック',     'ゴールデンクッキーを自動でクリック') +
+      row('skipWrath',         '😈 Wrathスキップ',      '怒りクッキーはスキップ') +
+      row('autoPopWrinkler',   '🐛 ラッパー自動pop',    'ラッパーを自動で破裂させる') +
+      row('skipShinyWrinkler', '✨ 光るラッパー除外',   '光るラッパーはpopしない');
+
+    // ── ランキング ──
+    var cps  = _currentCps();
+    var list = _getRankedList().slice(0, config.tableRows);
+
+    html += '<div style="margin-top:10px;padding:8px;background:rgba(0,0,0,0.25);border-radius:4px;">';
+    html += '<div style="opacity:0.6;font-size:11px;margin-bottom:6px;">' +
+              '📊 効率ランキング  <span style="float:right;">CpS: ' + _shortNum(cps) +
+              '  <a class="option" style="font-size:9px;padding:1px 6px;margin-left:4px;" ' +
+              'onclick="Game.UpdateMenu();return false;">⟳更新</a></span>' +
+            '</div>';
+    html += '<table style="border-collapse:collapse;width:100%;font-size:11px;">';
+    html +=   '<tr style="opacity:0.5;border-bottom:1px solid rgba(255,255,255,0.15);">' +
+                '<td style="padding:2px 4px;">名前</td>' +
+                '<td style="text-align:right;padding:2px 4px;">コスト</td>' +
+                '<td style="text-align:right;padding:2px 4px;">回収(秒)</td>' +
+              '</tr>';
+
+    if (list.length === 0) {
+      html += '<tr><td colspan="3" style="opacity:0.3;padding:10px 0;text-align:center;">データなし</td></tr>';
+    }
+    for (var i = 0; i < list.length; i++) {
+      var item    = list[i];
+      var color   = item.canBuy ? '#7ed87e' : '#c0b898';
+      var badge   = item.type === 'upgrade' ? '<span style="color:#ffd080;">▲</span>' : '🏠';
+      var payback = item.eff === Infinity ? '∞' : _shortNum(item.eff) + 's';
+      html +=
+        '<tr style="color:' + color + ';border-bottom:1px solid rgba(255,255,255,0.05);">' +
+          '<td style="padding:2px 4px;">' + badge + ' ' + item.name + '</td>' +
+          '<td style="text-align:right;padding:2px 4px;">' + _shortNum(item.price) + '</td>' +
+          '<td style="text-align:right;padding:2px 4px;">' + payback + '</td>' +
+        '</tr>';
+    }
+    html += '</table></div>';
+
+    return html;
+  }
+
+  /* =========================================================
+     公開API
+  ========================================================= */
+  window.SmartHelper = {
+    config: config,
+
+    toggle: function (key, val) {
+      if (typeof config[key] !== 'boolean') return;
+      config[key] = (typeof val === 'boolean') ? val : !config[key];
+      _saveConfig();
+      _applyConfig();
+      if (typeof Game !== 'undefined' && Game.UpdateMenu && Game.onMenu === 'mods') {
+        Game.UpdateMenu();
+      }
+    },
+
+    setConfig: function (key, val) {
+      config[key] = val;
+      _saveConfig();
+      _applyConfig();
+    }
   };
 
   /* =========================================================
-     Mod内実績ブロック HTML 生成
-     Game.Achievements から modId に関連する実績を集める
+     設定反映
   ========================================================= */
-  function _buildAchievSection(modId) {
-    if (typeof Game === 'undefined' || !Game.Achievements) return '';
-    var reg = _registered[modId];
-    if (!reg || !reg.achievements || reg.achievements.length === 0) return '';
+  function _applyConfig() {
+    config.autoClick
+      ? _startTimer('autoClick', _autoClickTick, config.autoClickInterval)
+      : _stopTimer('autoClick');
 
-    var str = '<div class="block" style="padding:0px;margin:8px 4px;">' +
-              '<div class="subsection" style="padding:0px;">' +
-              '<div class="title">Mod内実績</div>' +
-              '<div class="listing crateBox">';
+    config.autoBuy
+      ? _startTimer('autoBuy', _autoBuyTick, config.autoBuyInterval)
+      : _stopTimer('autoBuy');
 
-    var found = 0;
-    for (var j = 0; j < reg.achievements.length; j++) {
-      var aName = reg.achievements[j];
-      var a = Game.Achievements[aName];
-      if (a) {
-        str += Game.crate(a, 'stats');
-        found++;
+    config.autoGC
+      ? _startTimer('autoGC', _autoGCTick, config.autoGCInterval)
+      : _stopTimer('autoGC');
+
+    config.autoPopWrinkler
+      ? _startTimer('autoPopWrinkler', _autoPopWrinklerTick, config.autoPopInterval)
+      : _stopTimer('autoPopWrinkler');
+  }
+
+  /* =========================================================
+     MOD登録
+  ========================================================= */
+  if (window.CookieClickerMods && typeof window.CookieClickerMods.register === 'function') {
+    window.CookieClickerMods.register({
+      id: 'smart-helper',
+
+      init: function () {
+        _loadConfig();
+        _whenReady(function () {
+          _applyConfig();
+          console.log('[SmartHelper] 起動。MODメニューから設定できます。');
+        }, 1000);
+      },
+
+      disable: function () {
+        _stopAllTimers();
+        console.log('[SmartHelper] 停止。');
+      },
+
+      settings: function () {
+        return _renderSettings();
       }
-    }
-    str += '</div></div></div>';
-    return found > 0 ? str : '';
-  }
-
-  /* =========================================================
-     Mod設定ブロック HTML 生成
-     各Modが settings() 関数を持つ場合はその内容を表示
-  ========================================================= */
-  function _buildSettingsSection(modId) {
-    var reg = _registered[modId];
-    if (!reg || typeof reg.settings !== 'function') return '';
-    var html = '';
-    try { html = reg.settings(); } catch(e) { return ''; }
-    if (!html) return '';
-    return '<div class="block" style="padding:0px;margin:8px 4px;">' +
-           '<div class="subsection" style="padding:0px;">' +
-           '<div class="title">Mod設定</div>' +
-           '<div class="listing">' + html + '</div>' +
-           '</div></div>';
-  }
-
-  /* =========================================================
-     ゲームネイティブ風 Mods メニュー HTML 生成
-  ========================================================= */
-  function _buildModsMenu() {
-    var str = '<div class="section">Mod</div>';
-
-    // ── Mod一覧 ON/OFF ────────────────────────────────────
-    str += '<div class="block" style="padding:0px;margin:8px 4px;">' +
-           '<div class="subsection" style="padding:0px;">' +
-           '<div class="title">Mod一覧</div>';
-
-    if (_manifest.length === 0) {
-      str += '<div class="listing"><label>mods/mod-manifest.json にMODが登録されていません。</label></div>';
-    } else {
-      for (var i = 0; i < _manifest.length; i++) {
-        var mod  = _manifest[i];
-        var isOn = !!_enabled[mod.id];
-
-        var onStyle  = isOn
-          ? 'background:rgba(120,200,100,0.35);border-color:rgba(120,200,100,0.7);'
-          : 'opacity:0.45;';
-        var offStyle = !isOn
-          ? 'background:rgba(200,80,80,0.35);border-color:rgba(200,80,80,0.7);'
-          : 'opacity:0.45;';
-
-        str +=
-          '<div class="listing">' +
-            '<a class="option smallFancyButton" style="' + onStyle + '" ' +
-              'onclick="ModLoader_toggle(\'' + mod.id + '\');return false;">' +
-              'ON' +
-            '</a>' +
-            '<a class="option smallFancyButton" style="' + offStyle + '" ' +
-              'onclick="ModLoader_toggle(\'' + mod.id + '\');return false;">' +
-              'OFF' +
-            '</a>' +
-            ' <b style="margin-left:4px;">' + (mod.name || mod.id) + '</b>' +
-            (mod.version ? ' <small style="opacity:0.5;">v' + mod.version + '</small>' : '') +
-            (mod.author  ? ' <small style="opacity:0.5;">by ' + mod.author + '</small>' : '') +
-            (mod.description ? '<br><label>' + mod.description + '</label>' : '') +
-          '</div>';
-      }
-    }
-    str += '</div></div>';
-
-    // ── ロード中Modごとの設定 & 実績 ──────────────────────
-    for (var k = 0; k < _manifest.length; k++) {
-      var m = _manifest[k];
-      if (!_enabled[m.id]) continue;
-      str += _buildSettingsSection(m.id);
-      str += _buildAchievSection(m.id);
-    }
-
-    // ── サードパーティ実績（shadow: Third-party 等） ───────
-    if (typeof Game !== 'undefined' && Game.Achievements && Game.Achievements['Third-party']) {
-      str += '<div class="block" style="padding:0px;margin:8px 4px;">' +
-             '<div class="subsection" style="padding:0px;">' +
-             '<div class="title">Mod関連実績</div>' +
-             '<div class="listing crateBox">' +
-             Game.crate(Game.Achievements['Third-party'], 'stats') +
-             '</div>' +
-             '</div></div>';
-    }
-
-    str += '<div style="height:128px;"></div>';
-    return str;
-  }
-
-  /* =========================================================
-     Game.UpdateMenu フック
-     onMenu === 'mods' のときに Mod メニューを描画する
-  ========================================================= */
-  function _hookUpdateMenu() {
-    if (typeof Game === 'undefined' || typeof Game.UpdateMenu !== 'function') {
-      setTimeout(_hookUpdateMenu, 300);
-      return;
-    }
-
-    var _orig = Game.UpdateMenu;
-
-    Game.UpdateMenu = function () {
-      _orig.call(this);
-
-      // mods メニューのときだけ上書き描画
-      if (Game.onMenu !== 'mods') return;
-
-      var menu = document.getElementById('menu');
-      if (!menu) return;
-
-      // ネイティブの閉じる(×)ボタンを保持
-      var closeBtn = '<div class="close menuClose" ' +
-        (Game.clickStr || 'onclick') + '="Game.ShowMenu();">x</div>';
-      menu.innerHTML = closeBtn + _buildModsMenu();
-    };
-
-    console.log('[ModLoader] Game.UpdateMenu フック完了');
-  }
-
-  /* =========================================================
-     初期化
-  ========================================================= */
-  function _init() {
-    _loadState();
-
-    // fetch は file:// プロトコルで失敗するため XHR で代替
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', MANIFEST_URL + '?_=' + Date.now(), true);
-    xhr.onreadystatechange = function () {
-      if (xhr.readyState !== XMLHttpRequest.DONE) return;
-      // file:// では status=0、http では status=200 が成功
-      var ok = (xhr.status === 200 || xhr.status === 0) && xhr.responseText;
-      if (ok) {
-        try {
-          var data = JSON.parse(xhr.responseText);
-          _manifest = Array.isArray(data) ? data : [];
-          console.log('[ModLoader] manifest 読み込み (' + _manifest.length + ' MOD)');
-          for (var i = 0; i < _manifest.length; i++) {
-            if (_enabled[_manifest[i].id]) _enableMod(_manifest[i]);
-          }
-        } catch (e) {
-          console.warn('[ModLoader] manifest JSONパースエラー:', e);
-        }
-      } else {
-        console.warn('[ModLoader] manifest 読み込み失敗 status=' + xhr.status);
-      }
-      _hookUpdateMenu();
-    };
-    xhr.onerror = function () {
-      console.warn('[ModLoader] manifest XHR エラー');
-      _hookUpdateMenu();
-    };
-    xhr.send();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _init);
+    });
   } else {
-    _init();
+    console.error('[SmartHelper] CookieClickerMods が見つかりません');
   }
 
 })();
