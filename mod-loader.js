@@ -49,7 +49,9 @@
           catch (e) { console.error('[ModLoader] init() エラー (' + mod.id + '):', e); }
         }
       }
-    }
+    },
+    /** 登録済みMODオブジェクトへの参照（achievements の後付け更新用） */
+    _registered: _registered
   };
 
   /* =========================================================
