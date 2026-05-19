@@ -27,7 +27,6 @@
      内部状態
   ========================================================= */
   var _currentSpeed = 1;
-  var _origLoop     = null;  // 元の Game.Loop
   var _notifTimer   = null;
 
   /* =========================================================
@@ -49,15 +48,38 @@
 
   /* =========================================================
      速度の適用
+  =========================================================
+   バグの原因:
+     Game.fps を上げると setTimeout(Game.Loop, 1000/Game.fps) の
+     間隔は短くなるが、Logic 内の Game.Earn(cookiesPs/Game.fps) の
+     加算量も同じ割合で小さくなるため、結果として速度が変わらない。
+
+   修正方針:
+     Game.Logic をラップして内部では fps を BASE_FPS (30) として
+     扱わせることで加算量を正しく保ちつつ、Game.fps には倍率を
+     反映した値をセットして setTimeout の間隔だけを短くする。
   ========================================================= */
   function _applySpeed(speed) {
     _currentSpeed = speed;
     if (typeof Game === 'undefined') return;
 
-    // Game.fps を変更するとループ間隔・ロジック回数が変わる
+    // Game.Logic を初回だけラップする
+    if (!Game._tfOrigLogic) {
+      Game._tfOrigLogic = Game.Logic;
+      Game.Logic = function () {
+        // Logic 内では fps を BASE_FPS に固定して計算させる
+        // (cookiesPs/Game.fps などが速度倍率の影響を受けないようにする)
+        var savedFps = Game.fps;
+        Game.fps = BASE_FPS;
+        Game._tfOrigLogic.call(Game);
+        Game.fps = savedFps;
+      };
+    }
+
+    // setTimeout(Game.Loop, 1000/Game.fps) の間隔のみ倍率を反映する
+    // 例: 2x なら fps=60 → 間隔 ~16ms → Logic が 2 倍の頻度で実行される
     Game.fps = Math.round(BASE_FPS * speed);
 
-    // 速度変更通知
     _showNotif(speed);
     _saveSpeed(speed);
     _updateMenuIfOpen();
@@ -245,6 +267,11 @@
     disable: function () {
       // 速度を 1x (デフォルト) に戻す
       if (typeof Game !== 'undefined') {
+        // Game.Logic のラッパーを解除
+        if (Game._tfOrigLogic) {
+          Game.Logic = Game._tfOrigLogic;
+          delete Game._tfOrigLogic;
+        }
         Game.fps = BASE_FPS;
       }
       // バッジ削除
