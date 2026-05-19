@@ -89,9 +89,9 @@ function _currentCps() {
   return Math.max(cps, 0.0001);
 }
 
-/* =========================
+/* =========================================================
    建物 CpS増加量
-========================= */
+========================================================= */
 function _buildingDeltaCps(obj) {
   if (!obj) return 0;
 
@@ -104,7 +104,7 @@ function _buildingDeltaCps(obj) {
 
     var after = Game.cookiesPs;
 
-    // 戻す
+    // 元に戻す
     obj.amount -= 1;
     Game.CalculateGains();
 
@@ -117,9 +117,9 @@ function _buildingDeltaCps(obj) {
   }
 }
 
-/* =========================
+/* =========================================================
    建物効率
-========================= */
+========================================================= */
 function _buildingEfficiency(obj) {
   if (!obj) return Infinity;
 
@@ -132,9 +132,9 @@ function _buildingEfficiency(obj) {
   return price / deltaCps;
 }
 
-/* =========================
+/* =========================================================
    アップグレード CpS増加量
-========================= */
+========================================================= */
 function _upgradeDeltaCps(up) {
   if (!up) return 0;
 
@@ -147,10 +147,7 @@ function _upgradeDeltaCps(up) {
     // 仮購入
     up.bought = 1;
 
-    // milk/倍率系再計算
-    if (typeof Game.CalculateGains === 'function') {
-      Game.CalculateGains();
-    }
+    Game.CalculateGains();
 
     var after = Game.cookiesPs;
 
@@ -167,10 +164,11 @@ function _upgradeDeltaCps(up) {
   }
 }
 
-/* =========================
+/* =========================================================
    アップグレード効率
-========================= */
+========================================================= */
 
+/* 大きいほどアップグレードが後回し */
 var UPGRADE_PRIORITY_PENALTY = 5;
 
 function _upgradeEfficiency(up) {
@@ -185,19 +183,21 @@ function _upgradeEfficiency(up) {
     return Infinity;
   }
 
-  // 建物より優先度を下げる
+  // 回収時間ベース
   return (price / deltaCps) * UPGRADE_PRIORITY_PENALTY;
 }
 
-/* =========================
+/* =========================================================
    ランキング取得
-========================= */
+========================================================= */
 function _getRankedList() {
   if (!_gameReady()) return [];
 
   var list = [];
 
-  /* 建物 */
+  /* =========================
+     建物
+  ========================= */
   for (var name in Game.Objects) {
 
     if (!Object.prototype.hasOwnProperty.call(Game.Objects, name)) {
@@ -218,14 +218,16 @@ function _getRankedList() {
     });
   }
 
-  /* アップグレード */
+  /* =========================
+     アップグレード
+  ========================= */
   for (var i = 0; i < Game.UpgradesInStore.length; i++) {
 
     var up = Game.UpgradesInStore[i];
 
     if (!up || up.bought) continue;
 
-    // 除外
+    // 除外対象
     if (
       up.pool === 'prestige' ||
       up.pool === 'debug' ||
@@ -241,19 +243,25 @@ function _getRankedList() {
 
     list.push({
       name   : up.dname || up.name || ('upgrade-' + i),
+
       price  : typeof up.getPrice === 'function'
-                ? up.getPrice()
-                : (up.price || 0),
+        ? up.getPrice()
+        : (up.price || 0),
+
       eff    : _upgradeEfficiency(up),
+
       canBuy : typeof up.canBuy === 'function'
-                ? up.canBuy()
-                : false,
+        ? up.canBuy()
+        : false,
+
       type   : 'upgrade',
       ref    : up
     });
   }
 
-  // 効率順
+  /* =========================
+     効率順ソート
+  ========================= */
   list.sort(function (a, b) {
     return a.eff - b.eff;
   });
