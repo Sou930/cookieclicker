@@ -49,9 +49,23 @@ Feel free to alter this code to your liking, but please do not re-host it, do no
 <div id="wrapper">
 
 	<div id="topBar">
-		<div style="float:right;position:relative;"><div id="tinyglobe" style="position:absolute;top:-4px;width:22px;height:22px;background:url(img/tinyglobeSheet.gif);right:4px;top:4px;pointer-events:none;"></div><a id="changeLanguage" style="font-variant:small-caps;padding-right:20px;" onmouseover="INTERVAL_TINYGLOBE=setInterval(function(){var tinyglobe=document.getElementById('tinyglobe');tinyglobe.style.backgroundPosition=(parseInt(tinyglobe.style.backgroundPosition)-22)+'px';},30);" onmouseout="clearInterval(INTERVAL_TINYGLOBE);">Change language</a><script>document.getElementById('tinyglobe').style.backgroundPosition=(-[0,19,27][Math.floor(Math.random()*3)]*22)+'px';</script></div>
-		<div id="topBarEnd" style="float:right;padding:0px;"></div>
-	</div>
+    <div style="float:right;position:relative;">
+        <!-- 言語切り替えボタン（既存） -->
+        <div id="tinyglobe" ...></div>
+        <a id="changeLanguage" ...>Change language</a>
+    </div>
+    <div id="topBarEnd" style="float:right;padding:0px;"></div>
+
+    <!-- ↓これを追加 -->
+    <a id="topbarOtherVersions" style="display:none;">Other versions</a>
+    <a id="topbarTumblr" style="display:none;"></a>
+    <a id="topbarDiscord" style="display:none;"></a>
+    <a id="topbarMerch" style="display:none;"></a>
+    <a id="topbarMobileCC" style="display:none;"></a>
+    <a id="topbarSteamCC" style="display:none;"></a>
+    <a id="topbarRandomgen" style="display:none;"></a>
+    <a id="topbarIGM" style="display:none;"></a>
+</div>
 
 	<div id="game">
 		<div id="versionNumber" class="title"></div>
