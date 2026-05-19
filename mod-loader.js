@@ -4,8 +4,9 @@
  * 変更点:
  *  - 各MOD詳細タブからは実績欄を削除（設定のみ表示）
  *  - MOD一覧タブの下部に「MOD実績」テーブルを追加
- *    各MODごとに行を作り、実績がないMODは「なし」と表示
- *  - 通常の実績欄に出ないようMOD側でpoolを'mod'等にする想定
+ *  - Game.WriteSave / Game.ImportSaveCode をフックして
+ *    セーブデータ末尾に MOD 情報 ( 有効状態 + 各 MOD の save() データ ) を
+ *    "||MOD||<base64-json>" の形式で付与・復元するように
  */
 
 (function () {
@@ -13,6 +14,7 @@
 
   var MANIFEST_URL = 'mods/mod-manifest.json';
   var STORAGE_KEY  = 'CC_ModsEnabled';
+  var SAVE_MARKER  = '||MOD||';
 
   var _registered  = {};
   var _pendingInit = {};
@@ -105,13 +107,148 @@
   };
 
   /* =========================================================
+     セーブ/ロード フック
+  ========================================================= */
+  function _utf8ToB64(str) {
+    try { return btoa(unescape(encodeURIComponent(str))); }
+    catch (e) { return btoa(str); }
+  }
+  function _b64ToUtf8(b64) {
+    try { return decodeURIComponent(escape(atob(b64))); }
+    catch (e) { return atob(b64); }
+  }
+
+  function _buildModSavePayload() {
+    var payload = { enabled: _enabled, mods: {} };
+    for (var id in _registered) {
+      if (!Object.prototype.hasOwnProperty.call(_registered, id)) continue;
+      var reg = _registered[id];
+      if (reg && typeof reg.save === 'function') {
+        try { payload.mods[id] = reg.save(); }
+        catch (e) { console.error('[ModLoader] save() エラー (' + id + '):', e); }
+      }
+    }
+    return SAVE_MARKER + _utf8ToB64(JSON.stringify(payload));
+  }
+
+  function _splitModFromSave(save) {
+    if (typeof save !== 'string') return { core: save, payload: null };
+    var idx = save.indexOf(SAVE_MARKER);
+    if (idx < 0) return { core: save, payload: null };
+    var core = save.substring(0, idx);
+    var rest = save.substring(idx + SAVE_MARKER.length);
+    var payload = null;
+    try { payload = JSON.parse(_b64ToUtf8(rest)); }
+    catch (e) { console.warn('[ModLoader] MOD payload パース失敗:', e); }
+    return { core: core, payload: payload };
+  }
+
+  function _applyModPayload(payload) {
+    if (!payload || typeof payload !== 'object') return;
+
+    // 有効/無効状態の復元
+    if (payload.enabled && typeof payload.enabled === 'object') {
+      for (var i = 0; i < _manifest.length; i++) {
+        var mod = _manifest[i];
+        var want = !!payload.enabled[mod.id];
+        var have = !!_enabled[mod.id];
+        if (want && !have) _enableMod(mod);
+        else if (!want && have) _disableMod(mod);
+      }
+    }
+
+    // 各 MOD の load() に渡す
+    if (payload.mods && typeof payload.mods === 'object') {
+      // MOD はまだロード中の可能性があるため少し遅延
+      setTimeout(function () {
+        for (var id in payload.mods) {
+          if (!Object.prototype.hasOwnProperty.call(payload.mods, id)) continue;
+          var reg = _registered[id];
+          if (reg && typeof reg.load === 'function') {
+            try { reg.load(payload.mods[id]); }
+            catch (e) { console.error('[ModLoader] load() エラー (' + id + '):', e); }
+          }
+        }
+      }, 500);
+    }
+  }
+
+  function _hookSaveLoad() {
+    if (typeof Game === 'undefined') { setTimeout(_hookSaveLoad, 300); return; }
+
+    // WriteSave: 末尾に MOD 情報を付与
+    if (typeof Game.WriteSave === 'function' && !Game._modOrigWriteSave) {
+      Game._modOrigWriteSave = Game.WriteSave;
+      Game.WriteSave = function (type) {
+        var result = Game._modOrigWriteSave.apply(this, arguments);
+        try {
+          // type 1 = localStorage, 3 = string return など。文字列を返すケースに対し付与
+          if (typeof result === 'string' && result.indexOf(SAVE_MARKER) < 0) {
+            return result + _buildModSavePayload();
+          }
+        } catch (e) { console.error('[ModLoader] WriteSave hook error:', e); }
+        return result;
+      };
+    }
+
+    // ImportSaveCode: MOD 情報を切り出してから本体に渡す
+    if (typeof Game.ImportSaveCode === 'function' && !Game._modOrigImportSaveCode) {
+      Game._modOrigImportSaveCode = Game.ImportSaveCode;
+      Game.ImportSaveCode = function (save) {
+        var split = _splitModFromSave(save);
+        var ret = Game._modOrigImportSaveCode.call(this, split.core);
+        if (split.payload) _applyModPayload(split.payload);
+        return ret;
+      };
+    }
+
+    // LoadSave: localStorage 経由のロードにも対応
+    if (typeof Game.LoadSave === 'function' && !Game._modOrigLoadSave) {
+      Game._modOrigLoadSave = Game.LoadSave;
+      Game.LoadSave = function (data) {
+        var save = data;
+        if (typeof save !== 'string') {
+          try { save = localStorage.getItem(Game.SaveTo); } catch (e) {}
+        }
+        var split = _splitModFromSave(save);
+        var ret;
+        if (typeof data === 'string') {
+          ret = Game._modOrigLoadSave.call(this, split.core);
+        } else {
+          // localStorage を一時的に書き換えてオリジナルへ
+          var key = Game.SaveTo;
+          var orig = null;
+          try { orig = localStorage.getItem(key); } catch (e) {}
+          try { if (split.core != null) localStorage.setItem(key, split.core); } catch (e) {}
+          ret = Game._modOrigLoadSave.call(this, data);
+          // 元に戻す (WriteSave 時に再付与される)
+          try { if (orig != null) localStorage.setItem(key, orig); } catch (e) {}
+        }
+        if (split.payload) _applyModPayload(split.payload);
+        return ret;
+      };
+    }
+
+    console.log('[ModLoader] セーブ/ロードフック完了');
+  }
+
+  /* =========================================================
      Mod設定ブロック HTML 生成
   ========================================================= */
   function _buildSettingsSection(modId) {
     var reg = _registered[modId];
     if (!reg || typeof reg.settings !== 'function') return '';
     var html = '';
-    try { html = reg.settings(); } catch(e) { return ''; }
+    try { html = reg.settings(); }
+    catch(e) {
+      console.error('[ModLoader] settings() エラー (' + modId + '):', e);
+      return '<div class="block" style="padding:0px;margin:8px 4px;">' +
+             '<div class="subsection" style="padding:0px;">' +
+             '<div class="title">Mod設定</div>' +
+             '<div class="listing"><label style="color:#f88;">' +
+             '設定の表示に失敗しました: ' + (e && e.message ? e.message : e) +
+             '</label></div></div></div>';
+    }
     if (!html) return '';
     return '<div class="block" style="padding:0px;margin:8px 4px;">' +
            '<div class="subsection" style="padding:0px;">' +
@@ -291,6 +428,7 @@
     };
 
     console.log('[ModLoader] Game.UpdateMenu フック完了');
+    _hookSaveLoad();
   }
 
   function _init() {
