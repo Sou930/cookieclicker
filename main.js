@@ -1,4 +1,4 @@
-﻿/*
+/*
 All this code is copyright Orteil, 2013-2026.
 	-with some help, advice and fixes by Nicholas Laux, Debugbro, Opti, the folks at Playsaurus, and lots of people on reddit, Discord, and the DashNet forums
 	-also includes a bunch of snippets found on stackoverflow.com and others
@@ -6722,6 +6722,8 @@ Game.Launch=function()
 			//if (what=='log') l('donateBox').className='on'; else l('donateBox').className='';
 			Game.onMenu=what;
 			
+			l('homeButton').className=(Game.onMenu=='')?'panelButton selected':'panelButton';
+			l('modsButton').className=(Game.onMenu=='mods')?'panelButton selected':'panelButton';
 			l('prefsButton').className=(Game.onMenu=='prefs')?'panelButton selected':'panelButton';
 			l('statsButton').className=(Game.onMenu=='stats')?'panelButton selected':'panelButton';
 			l('logButton').className=(Game.onMenu=='log')?'panelButton selected':'panelButton';
@@ -6952,6 +6954,10 @@ Game.Launch=function()
 				}
 				
 				str+='<div style="height:128px;"></div>';
+			}
+			else if (Game.onMenu=='mods')
+			{
+				/* Mod\u30e1\u30cb\u30e5\u30fc\u306fmod-loader.js\u306e_hookUpdateMenu\u306b\u3088\u308a\u63cf\u753b */
 			}
 			else if (Game.onMenu=='log')
 			{
@@ -7240,6 +7246,8 @@ Game.Launch=function()
 			});*/
 		}
 		
+		AddEvent(l('homeButton'),'click',function(){Game.ShowMenu('');});
+		AddEvent(l('modsButton'),'click',function(){Game.ShowMenu('mods');});
 		AddEvent(l('prefsButton'),'click',function(){Game.ShowMenu('prefs');});
 		AddEvent(l('statsButton'),'click',function(){Game.ShowMenu('stats');});
 		AddEvent(l('logButton'),'click',function(){Game.ShowMenu('log');});
@@ -16526,10 +16534,14 @@ Game.Launch=function()
 					el.style.transform='scale(1,'+(width)+')';
 				}
 			}
-			l('prefsButton').firstChild.innerHTML=loc("Options");
-			l('statsButton').firstChild.innerHTML=loc("Stats");
-			l('logButton').firstChild.innerHTML=loc("Info");
-			l('legacyButton').firstChild.innerHTML=loc("Legacy");
+			l('homeButton').firstChild.innerHTML='\u30db\u30fc\u30e0';
+			l('modsButton').firstChild.innerHTML='Mod';
+			l('prefsButton').firstChild.innerHTML='\u30aa\u30d7\u30b7\u30e7\u30f3';
+			l('statsButton').firstChild.innerHTML='\u8a18\u9332';
+			l('logButton').firstChild.innerHTML='\u60c5\u5831';
+			l('legacyButton').firstChild.innerHTML='\u907a\u7523';
+			adaptWidth(l('homeButton'));
+			adaptWidth(l('modsButton'));
 			adaptWidth(l('prefsButton'));
 			adaptWidth(l('statsButton'));
 			adaptWidth(l('logButton'));
