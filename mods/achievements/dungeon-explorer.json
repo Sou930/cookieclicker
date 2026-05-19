@@ -3,56 +3,72 @@
     "id": "DE_FirstBattle",
     "name": "初陣",
     "desc": "ダンジョン探索を初めて開始した。<q>旅の始まりは、最初の一歩から。</q>",
-    "icon": [14, 6],
-    "pool": "shadow"
+    "icon": [
+      14,
+      6
+    ]
   },
   {
     "id": "DE_BossHunter",
     "name": "ボスハンター",
     "desc": "ダンジョンボスを<b>1体</b>討伐した。<q>強き者よ、更なる高みへ。</q>",
-    "icon": [15, 6],
-    "pool": "shadow"
+    "icon": [
+      15,
+      6
+    ]
   },
   {
     "id": "DE_Veteran",
     "name": "百戦錬磨",
     "desc": "ダンジョンボスを<b>10体</b>討伐した。<q>傷跡がその強さを物語る。</q>",
-    "icon": [16, 6],
-    "pool": "shadow"
+    "icon": [
+      16,
+      6
+    ]
   },
   {
     "id": "DE_DemonSlayer",
     "name": "魔王討伐",
     "desc": "<b>魔王クッキウス</b>を打ち倒した。<q>無限のクッキーは、今や汝の手中に。</q>",
-    "icon": [17, 6],
-    "pool": "shadow"
+    "icon": [
+      17,
+      6
+    ]
   },
   {
     "id": "DE_FloorMaster",
     "name": "百フロア踏破",
     "desc": "累計<b>100フロア</b>を踏破した。<q>この足が踏みしめた地の数だけ、強くなれる。</q>",
-    "icon": [18, 6],
-    "pool": "shadow"
+    "icon": [
+      18,
+      6
+    ]
   },
   {
     "id": "DE_FullGear",
     "name": "全装備制覇",
     "desc": "全ての装備をクラフトした。<q>最強の備えが、最強の冒険者を作る。</q>",
-    "icon": [19, 6],
-    "pool": "shadow"
+    "icon": [
+      19,
+      6
+    ]
   },
   {
     "id": "DE_EliteArmy",
     "name": "精鋭部隊",
     "desc": "兵士を<b>50人</b>雇用した。<q>一人では無理でも、皆となら不可能はない。</q>",
-    "icon": [20, 6],
-    "pool": "shadow"
+    "icon": [
+      20,
+      6
+    ]
   },
   {
     "id": "DE_LegendaryForce",
     "name": "伝説の兵団",
     "desc": "兵士を<b>Lv.10</b>に育て上げた。<q>鍛え抜かれた魂は、クッキーよりも甘く輝く。</q>",
-    "icon": [21, 6],
-    "pool": "shadow"
+    "icon": [
+      21,
+      6
+    ]
   }
 ]
