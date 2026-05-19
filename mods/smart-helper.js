@@ -74,90 +74,192 @@
     check();
   }
 
-  /* =========================================================
-     効率計算
-  ========================================================= */
-  function _currentCps() {
-    if (!_gameReady()) return 1;
-    var cps = (Game.cookiesPs || 0) * (1 - (Game.cpsSucked || 0)) + (Game.computedMouseCps || 0);
-    return Math.max(cps, 0.0001);
-  }
+ /* =========================================================
+   効率計算
+========================================================= */
 
-  function _buildingDeltaCps(obj) {
-    if (!obj) return 0;
-    try {
-      var before = Game.cookiesPs;
-      obj.amount += 1;
+function _currentCps() {
+  if (!_gameReady()) return 1;
+
+  var cps =
+    (Game.cookiesPs || 0) *
+    (1 - (Game.cpsSucked || 0)) +
+    (Game.computedMouseCps || 0);
+
+  return Math.max(cps, 0.0001);
+}
+
+/* =========================
+   建物 CpS増加量
+========================= */
+function _buildingDeltaCps(obj) {
+  if (!obj) return 0;
+
+  try {
+    var before = Game.cookiesPs;
+
+    // 仮購入
+    obj.amount += 1;
+    Game.CalculateGains();
+
+    var after = Game.cookiesPs;
+
+    // 戻す
+    obj.amount -= 1;
+    Game.CalculateGains();
+
+    return Math.max(after - before, 0);
+
+  } catch (e) {
+
+    // フォールバック
+    return (obj.storedCps || 0) * (Game.globalCpsMult || 1);
+  }
+}
+
+/* =========================
+   建物効率
+========================= */
+function _buildingEfficiency(obj) {
+  if (!obj) return Infinity;
+
+  var price = obj.price || 0;
+  var deltaCps = _buildingDeltaCps(obj);
+
+  if (deltaCps <= 0) return Infinity;
+
+  // 回収時間
+  return price / deltaCps;
+}
+
+/* =========================
+   アップグレード CpS増加量
+========================= */
+function _upgradeDeltaCps(up) {
+  if (!up) return 0;
+
+  try {
+    var before = Game.cookiesPs;
+
+    // 状態保存
+    var oldBought = up.bought;
+
+    // 仮購入
+    up.bought = 1;
+
+    // milk/倍率系再計算
+    if (typeof Game.CalculateGains === 'function') {
       Game.CalculateGains();
-      var after = Game.cookiesPs;
-      obj.amount -= 1;
-      Game.CalculateGains();
-      return Math.max(after - before, 0);
-    } catch (e) {
-      return (obj.storedCps || 0) * (Game.globalCpsMult || 1);
-    }
-  }
-
-  function _buildingEfficiency(obj) {
-    if (!obj) return Infinity;
-    var price    = obj.price || 0;
-    var deltaCps = _buildingDeltaCps(obj);
-    if (deltaCps <= 0) return Infinity;
-    return price / deltaCps;
-  }
-
-  /* アップグレード効率: 元算式 ×UPGRADE_PRIORITY_PENALTY で優先度を下げる */
-  function _upgradeEfficiency(up) {
-    if (!up || typeof up.getPrice !== 'function') return Infinity;
-    return (up.getPrice() / _currentCps()) * UPGRADE_PRIORITY_PENALTY;
-  }
-
-  function _getRankedList() {
-    if (!_gameReady()) return [];
-    var list = [];
-
-    for (var name in Game.Objects) {
-      if (!Object.prototype.hasOwnProperty.call(Game.Objects, name)) continue;
-      var obj = Game.Objects[name];
-      if (!obj) continue;
-      list.push({
-        name   : obj.name || name,
-        price  : obj.price || 0,
-        eff    : _buildingEfficiency(obj),
-        canBuy : (Game.cookies || 0) >= (obj.price || 0),
-        type   : 'building',
-        ref    : obj
-      });
     }
 
-    for (var i = 0; i < Game.UpgradesInStore.length; i++) {
-      var up = Game.UpgradesInStore[i];
-      if (!up || up.bought) continue;
-      if (up.pool === 'prestige' || up.pool === 'debug' || up.pool === 'toggle') continue;
-      if (typeof up.isVaulted === 'function' && up.isVaulted()) continue;
-      if (up.priceLumps > 0) continue;
-      list.push({
-        name   : up.dname || up.name || ('upgrade-' + i),
-        price  : typeof up.getPrice === 'function' ? up.getPrice() : (up.price || 0),
-        eff    : _upgradeEfficiency(up),
-        canBuy : typeof up.canBuy === 'function' ? up.canBuy() : false,
-        type   : 'upgrade',
-        ref    : up
-      });
+    var after = Game.cookiesPs;
+
+    // 元に戻す
+    up.bought = oldBought;
+
+    Game.CalculateGains();
+
+    return Math.max(after - before, 0);
+
+  } catch (e) {
+    console.error('[SmartHelper] upgrade cps calc error:', e);
+    return 0;
+  }
+}
+
+/* =========================
+   アップグレード効率
+========================= */
+
+var UPGRADE_PRIORITY_PENALTY = 5;
+
+function _upgradeEfficiency(up) {
+  if (!up || typeof up.getPrice !== 'function') {
+    return Infinity;
+  }
+
+  var price = up.getPrice();
+  var deltaCps = _upgradeDeltaCps(up);
+
+  if (deltaCps <= 0) {
+    return Infinity;
+  }
+
+  // 建物より優先度を下げる
+  return (price / deltaCps) * UPGRADE_PRIORITY_PENALTY;
+}
+
+/* =========================
+   ランキング取得
+========================= */
+function _getRankedList() {
+  if (!_gameReady()) return [];
+
+  var list = [];
+
+  /* 建物 */
+  for (var name in Game.Objects) {
+
+    if (!Object.prototype.hasOwnProperty.call(Game.Objects, name)) {
+      continue;
     }
 
-    list.sort(function (a, b) { return a.eff - b.eff; });
-    return list;
+    var obj = Game.Objects[name];
+
+    if (!obj) continue;
+
+    list.push({
+      name   : obj.name || name,
+      price  : obj.price || 0,
+      eff    : _buildingEfficiency(obj),
+      canBuy : (Game.cookies || 0) >= (obj.price || 0),
+      type   : 'building',
+      ref    : obj
+    });
   }
 
-  function _shortNum(n) {
-    if (n === Infinity) return '∞';
-    if (typeof n !== 'number' || isNaN(n)) return '0';
-    var units = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
-    var i = 0;
-    while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
-    return (i === 0 ? Math.round(n) : n.toFixed(2)) + units[i];
+  /* アップグレード */
+  for (var i = 0; i < Game.UpgradesInStore.length; i++) {
+
+    var up = Game.UpgradesInStore[i];
+
+    if (!up || up.bought) continue;
+
+    // 除外
+    if (
+      up.pool === 'prestige' ||
+      up.pool === 'debug' ||
+      up.pool === 'toggle'
+    ) continue;
+
+    if (
+      typeof up.isVaulted === 'function' &&
+      up.isVaulted()
+    ) continue;
+
+    if (up.priceLumps > 0) continue;
+
+    list.push({
+      name   : up.dname || up.name || ('upgrade-' + i),
+      price  : typeof up.getPrice === 'function'
+                ? up.getPrice()
+                : (up.price || 0),
+      eff    : _upgradeEfficiency(up),
+      canBuy : typeof up.canBuy === 'function'
+                ? up.canBuy()
+                : false,
+      type   : 'upgrade',
+      ref    : up
+    });
   }
+
+  // 効率順
+  list.sort(function (a, b) {
+    return a.eff - b.eff;
+  });
+
+  return list;
+}
 
   /* =========================================================
      自動アクション
