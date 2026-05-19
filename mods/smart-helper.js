@@ -74,6 +74,9 @@
 
   /* =========================================================
      効率計算
+     参考: Cookie Clicker Calculator (https://javascriptplayground.web.fc2.com/)
+     効率 = 次の1個のコスト / 購入によるΔCpS
+     これにより「元を取るまでの秒数」に相当する値で順位付けする。
   ========================================================= */
   function _currentCps() {
     if (!_gameReady()) return 1;
@@ -81,16 +84,41 @@
     return Math.max(cps, 0.0001);
   }
 
+  /**
+   * 建物を1個追加したときのΔCpSを計算する。
+   * Game.cookiesPs の差分として取得するため、一時的に amount を+1して
+   * CalculateGains を呼び、差を測定してから元に戻す。
+   * これにより HTML Calculator と同等のシナジー・マルチプライヤー込みの
+   * 正確なΔCpSが得られる。
+   */
+  function _buildingDeltaCps(obj) {
+    if (!obj) return 0;
+    try {
+      var before = Game.cookiesPs;
+      obj.amount += 1;
+      Game.CalculateGains();
+      var after = Game.cookiesPs;
+      obj.amount -= 1;
+      Game.CalculateGains();
+      return Math.max(after - before, 0);
+    } catch (e) {
+      // フォールバック: storedCps * globalCpsMult
+      return (obj.storedCps || 0) * (Game.globalCpsMult || 1);
+    }
+  }
+
   function _buildingEfficiency(obj) {
     if (!obj) return Infinity;
-    var price = obj.price || 0;
-    var deltaCps = (obj.storedCps || 0) * (Game.globalCpsMult || 1);
+    var price    = obj.price || 0;
+    var deltaCps = _buildingDeltaCps(obj);
     if (deltaCps <= 0) return Infinity;
-    return price * 1.15 / _currentCps() + price / deltaCps;
+    // 効率 = コスト / ΔCpS (秒単位の回収時間)
+    return price / deltaCps;
   }
 
   function _upgradeEfficiency(up) {
     if (!up || typeof up.getPrice !== 'function') return Infinity;
+    // アップグレードはΔCpSが取れないためコスト/現CpSで近似
     return up.getPrice() / _currentCps();
   }
 
@@ -103,7 +131,7 @@
       var obj = Game.Objects[name];
       if (!obj) continue;
       list.push({
-        name   : obj.dname || obj.name || name,
+        name   : obj.name || name,
         price  : obj.price || 0,
         eff    : _buildingEfficiency(obj),
         canBuy : (Game.cookies || 0) >= (obj.price || 0),
