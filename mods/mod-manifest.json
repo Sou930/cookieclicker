@@ -1,7 +1,7 @@
 [
   {
     "id": "smart-helper",
-    "name": "SmartHelper (Frozen Cookies代替)",
+    "name": "SmartHelper",
     "description": "効率ランキング表示・自動購入・GC自動クリック・ラッパー自動pop。右上パネルで個別ON/OFF可能。",
     "version": "1.0.0",
     "author": "Sou930",
