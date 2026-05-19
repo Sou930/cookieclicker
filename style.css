@@ -1,4 +1,4 @@
-﻿/* reset CSS */
+/* reset CSS */
 /*html, body, div, span, applet, object, iframe,
 h1, h2, h3, h4, h5, h6, p, blockquote, pre,
 a, abbr, acronym, address, big, cite, code,
@@ -1513,6 +1513,11 @@ q:after
 #statsButton{bottom:16px;left:0px;	padding-top:14px;		padding-right:2px;		background-position:0px -48px;}
 #logButton{top:0px;right:0px;		padding-top:16px;		padding-left:2px;		background-position:-100px 0px;}
 #legacyButton{bottom:16px;right:0px;padding-top:14px;		padding-left:2px;		background-position:-100px -48px;}
+/* 追加ボタン: ホーム / Mod  (panelMenu3.png の中央スライスを使い、ニュースを挟むように配置) */
+#homeButton{top:0px;left:100px;		padding-top:16px;		background-position:0px 0px;}
+#modsButton{top:0px;right:100px;	padding-top:16px;		background-position:-100px 0px;}
+#homeButton:hover,#homeButton.selected{						background-position:0px -96px;}
+#modsButton:hover,#modsButton.selected{						background-position:-100px -96px;}
 /*#prefsButton:hover,#prefsButton.selected{					background-position:0px -96px;}*/
 #statsButton:hover,#statsButton.selected{					background-position:0px -144px;}
 #logButton:hover,#logButton.selected{						background-position:-100px -96px;}
@@ -1803,8 +1808,8 @@ from {background-position:0px -24px;}
 {
 	position:absolute;
 	top:0px;
-	left:108px;
-	right:108px;
+	left:216px;
+	right:216px;
 	bottom:16px;
 	overflow:hidden;
 	z-index:1;
