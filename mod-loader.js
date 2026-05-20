@@ -242,19 +242,17 @@
     try { html = reg.settings(); }
     catch(e) {
       console.error('[ModLoader] settings() エラー (' + modId + '):', e);
-      return '<div class="block" style="padding:0px;margin:8px 4px;">' +
-             '<div class="subsection" style="padding:0px;">' +
+      return '<div class="subsection">' +
              '<div class="title">Mod設定</div>' +
              '<div class="listing"><label style="color:#f88;">' +
              '設定の表示に失敗しました: ' + (e && e.message ? e.message : e) +
-             '</label></div></div></div>';
+             '</label></div></div>';
     }
     if (!html) return '';
-    return '<div class="block" style="padding:0px;margin:8px 4px;">' +
-           '<div class="subsection" style="padding:0px;">' +
+    return '<div class="subsection">' +
            '<div class="title">Mod設定</div>' +
            '<div class="listing">' + html + '</div>' +
-           '</div></div>';
+           '</div>';
   }
 
   /* =========================================================
@@ -297,46 +295,82 @@
   }
 
   /* =========================================================
-     MOD一覧 + MOD実績テーブル
+     MOD一覧 + MOD実績セクション
   ========================================================= */
-  function _buildModAchievementsTable() {
+
+  /**
+   * Game.crate は context='stats' かつ pool!='normal' の未獲得実績を
+   * 空文字で返してしまうため、MOD実績は pool を一時的に 'normal' に
+   * 差し替えてクレートを生成し、直後に元に戻す。
+   */
+  function _modCrate(a) {
+    var origPool = a.pool;
+    a.pool = 'normal';
+    var html = Game.crate(a, 'stats');
+    a.pool = origPool;
+    return html;
+  }
+
+  function _buildModAchievementsSection() {
     if (typeof Game === 'undefined' || !Game.Achievements || !Game.crate) return '';
-    var rows = '';
+
+    // 実績を持つMODが存在するか確認（有効無効問わず登録済みのものを対象）
+    var modsWithAchievs = [];
+    var totalOwned = 0;
+    var totalAll   = 0;
+
     for (var i = 0; i < _manifest.length; i++) {
-      var mod  = _manifest[i];
-      var reg  = _registered[mod.id];
-      var name = mod.name || mod.id;
-      var crates = '';
-      var has    = false;
-      if (reg && reg.achievements && reg.achievements.length > 0) {
-        for (var j = 0; j < reg.achievements.length; j++) {
-          var a = Game.Achievements[reg.achievements[j]];
-          if (a) { crates += Game.crate(a, 'stats'); has = true; }
-        }
+      var mod = _manifest[i];
+      var reg = _registered[mod.id];
+      if (!reg || !reg.achievements || reg.achievements.length === 0) continue;
+
+      var crates   = '';
+      var modOwned = 0;
+      var modTotal = reg.achievements.length;
+
+      for (var j = 0; j < reg.achievements.length; j++) {
+        var a = Game.Achievements[reg.achievements[j]];
+        if (!a) continue;
+        crates += _modCrate(a);
+        if (a.won) modOwned++;
       }
-      rows +=
-        '<tr style="border-bottom:1px solid rgba(255,255,255,0.06);">' +
-          '<td style="padding:6px 10px;vertical-align:middle;white-space:nowrap;">' +
-            '<b>' + name + '</b>' +
-          '</td>' +
-          '<td style="padding:6px 10px;vertical-align:middle;">' +
-            (has ? '<div class="crateBox" style="display:inline-block;">' + crates + '</div>'
-                 : '<label style="opacity:0.5;">なし</label>') +
-          '</td>' +
-        '</tr>';
+
+      totalOwned += modOwned;
+      totalAll   += modTotal;
+      modsWithAchievs.push({ mod: mod, crates: crates, owned: modOwned, total: modTotal });
     }
 
-    return '<div class="block" style="padding:0px;margin:8px 4px;">' +
-           '<div class="subsection" style="padding:0px;">' +
-           '<div class="title">MOD実績</div>' +
-           '<div class="listing"><table style="width:100%;border-collapse:collapse;">' +
-           rows +
-           '</table></div></div></div>';
+    if (modsWithAchievs.length === 0) return '';
+
+    var totalPct = totalAll > 0 ? Math.floor((totalOwned / totalAll) * 100) : 0;
+
+    var str = '<div class="subsection">' +
+              '<div class="title">MOD実績</div>' +
+              '<div id="statsModAchievs">' +
+              '<div class="listing"><b>MOD実績 獲得数:</b> ' +
+              totalOwned + '/' + totalAll +
+              ' (' + totalPct + '%)</div>';
+
+    for (var k = 0; k < modsWithAchievs.length; k++) {
+      var entry   = modsWithAchievs[k];
+      var pct     = entry.total > 0 ? Math.floor((entry.owned / entry.total) * 100) : 0;
+      var modName = entry.mod.name || entry.mod.id;
+
+      str += '<div class="listing"><b>' + modName + '</b> ' +
+             '<small style="opacity:0.7;">' + entry.owned + '/' + entry.total +
+             ' (' + pct + '%)</small></div>';
+      if (entry.crates) {
+        str += '<div class="listing crateBox">' + entry.crates + '</div>';
+      }
+    }
+
+    str += '</div></div>';
+    return str;
   }
 
   function _buildModsListPanel() {
-    var str = '<div class="block" style="padding:0px;margin:8px 4px;">' +
-              '<div class="subsection" style="padding:0px;">' +
+    // Mod一覧 subsection
+    var str = '<div class="subsection">' +
               '<div class="title">Mod一覧</div>';
 
     if (_manifest.length === 0) {
@@ -364,10 +398,10 @@
           '</div>';
       }
     }
-    str += '</div></div>';
+    str += '</div>';
 
-    // MOD実績テーブル
-    str += _buildModAchievementsTable();
+    // MOD実績セクション（本家Stats風・独立subsection）
+    str += _buildModAchievementsSection();
 
     return str;
   }
@@ -375,16 +409,15 @@
   function _buildModPanel(modId) {
     var mod = null;
     for (var i = 0; i < _manifest.length; i++) if (_manifest[i].id === modId) { mod = _manifest[i]; break; }
-    if (!mod) return '<div class="listing"><label>Mod が見つかりません。</label></div>';
-    if (!_enabled[modId]) return '<div class="listing"><label>この Mod は OFF です。MODタブで ON にしてください。</label></div>';
+    if (!mod) return '<div class="subsection"><div class="listing"><label>Mod が見つかりません。</label></div></div>';
+    if (!_enabled[modId]) return '<div class="subsection"><div class="listing"><label>この Mod は OFF です。MODタブで ON にしてください。</label></div></div>';
 
     var s = _buildSettingsSection(modId);
     if (!s) {
-      s = '<div class="block" style="padding:0px;margin:8px 4px;">' +
-          '<div class="subsection" style="padding:0px;">' +
+      s = '<div class="subsection">' +
           '<div class="title">' + (mod.name || mod.id) + '</div>' +
           '<div class="listing"><label>表示する設定はありません。</label></div>' +
-          '</div></div>';
+          '</div>';
     }
     return s;
   }
@@ -398,7 +431,7 @@
       } else {
         str += _buildModPanel(_activeTab);
       }
-      str += '<div style="height:128px;"></div>';
+      str += '<div style="padding-bottom:128px;"></div>';
       return str;
     } catch (e) {
       console.error('[ModLoader] _buildModsMenu error:', e);
