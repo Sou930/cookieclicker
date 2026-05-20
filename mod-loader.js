@@ -4,9 +4,11 @@
  * 変更点:
  *  - 各MOD詳細タブからは実績欄を削除（設定のみ表示）
  *  - MOD一覧タブの下部に「MOD実績」テーブルを追加
- *  - Game.WriteSave / Game.ImportSaveCode をフックして
- *    セーブデータ末尾に MOD 情報 ( 有効状態 + 各 MOD の save() データ ) を
- *    "||MOD||<base64-json>" の形式で付与・復元するように
+ *  - セーブ/ロードを Game.saveModData / Game.loadModData にフックする
+ *    新方式に変更（type=0/1/2/3 すべての保存・ファイル保存・export 文字列に
+ *    自動で MOD データが同梱される）
+ *  - これにより MOD 設定・進捗・解除済み実績などが本体のセーブと
+ *    完全に同期され、エクスポート/インポートでも保持される
  */
 
 (function () {
@@ -14,7 +16,8 @@
 
   var MANIFEST_URL = 'mods/mod-manifest.json';
   var STORAGE_KEY  = 'CC_ModsEnabled';
-  var SAVE_MARKER  = '||MOD||';
+  var SAVE_MARKER  = '||MOD||';        // 旧フォーマット復元用
+  var MOD_LOADER_KEY = '__modLoader';  // saveModData 内に格納するキー
 
   var _registered  = {};
   var _pendingInit = {};
@@ -118,19 +121,6 @@
     catch (e) { return atob(b64); }
   }
 
-  function _buildModSavePayload() {
-    var payload = { enabled: _enabled, mods: {} };
-    for (var id in _registered) {
-      if (!Object.prototype.hasOwnProperty.call(_registered, id)) continue;
-      var reg = _registered[id];
-      if (reg && typeof reg.save === 'function') {
-        try { payload.mods[id] = reg.save(); }
-        catch (e) { console.error('[ModLoader] save() エラー (' + id + '):', e); }
-      }
-    }
-    return SAVE_MARKER + _utf8ToB64(JSON.stringify(payload));
-  }
-
   function _splitModFromSave(save) {
     if (typeof save !== 'string') return { core: save, payload: null };
     var idx = save.indexOf(SAVE_MARKER);
@@ -159,39 +149,76 @@
 
     // 各 MOD の load() に渡す
     if (payload.mods && typeof payload.mods === 'object') {
-      // MOD はまだロード中の可能性があるため少し遅延
-      setTimeout(function () {
-        for (var id in payload.mods) {
-          if (!Object.prototype.hasOwnProperty.call(payload.mods, id)) continue;
+      var pending = {};
+      for (var id in payload.mods) {
+        if (Object.prototype.hasOwnProperty.call(payload.mods, id)) pending[id] = payload.mods[id];
+      }
+      var tries = 0;
+      var iv = setInterval(function () {
+        tries++;
+        for (var id in pending) {
           var reg = _registered[id];
           if (reg && typeof reg.load === 'function') {
-            try { reg.load(payload.mods[id]); }
+            try { reg.load(pending[id]); }
             catch (e) { console.error('[ModLoader] load() エラー (' + id + '):', e); }
+            delete pending[id];
           }
         }
-      }, 500);
+        var remain = false;
+        for (var k in pending) { remain = true; break; }
+        if (!remain || tries > 40) clearInterval(iv);
+      }, 250);
     }
   }
 
   function _hookSaveLoad() {
     if (typeof Game === 'undefined') { setTimeout(_hookSaveLoad, 300); return; }
 
-    // WriteSave: 末尾に MOD 情報を付与
-    if (typeof Game.WriteSave === 'function' && !Game._modOrigWriteSave) {
-      Game._modOrigWriteSave = Game.WriteSave;
-      Game.WriteSave = function (type) {
-        var result = Game._modOrigWriteSave.apply(this, arguments);
+    /* === 新方式: Game.saveModData / Game.loadModData をフック ===
+     * これにより type=0/1/2/3 すべての保存形式・ファイルセーブ・
+     * エクスポート文字列にも MOD データが自動同梱される
+     */
+    if (typeof Game.saveModData === 'function' && !Game._modOrigSaveModData) {
+      Game._modOrigSaveModData = Game.saveModData;
+      Game.saveModData = function () {
+        var base = '';
+        try { base = Game._modOrigSaveModData.apply(this, arguments) || ''; }
+        catch (e) { console.error('[ModLoader] saveModData orig error:', e); }
         try {
-          // type 1 = localStorage, 3 = string return など。文字列を返すケースに対し付与
-          if (typeof result === 'string' && result.indexOf(SAVE_MARKER) < 0) {
-            return result + _buildModSavePayload();
-          }
-        } catch (e) { console.error('[ModLoader] WriteSave hook error:', e); }
-        return result;
+          var payload = _buildModSavePayloadObj();
+          // Game.safeSaveString で | や ; をエスケープ
+          var safe = Game.safeSaveString
+            ? Game.safeSaveString(JSON.stringify(payload))
+            : JSON.stringify(payload).replace(/\|/g, '[P]').replace(/;/g, '[S]');
+          return base + MOD_LOADER_KEY + ':' + safe + ';';
+        } catch (e) {
+          console.error('[ModLoader] saveModData hook error:', e);
+        }
+        return base;
       };
     }
 
-    // ImportSaveCode: MOD 情報を切り出してから本体に渡す
+    if (typeof Game.loadModData === 'function' && !Game._modOrigLoadModData) {
+      Game._modOrigLoadModData = Game.loadModData;
+      Game.loadModData = function () {
+        try {
+          if (Game.modSaveData && Game.modSaveData[MOD_LOADER_KEY]) {
+            var raw = Game.modSaveData[MOD_LOADER_KEY];
+            var json = Game.safeLoadString ? Game.safeLoadString(raw) : raw;
+            try {
+              var payload = JSON.parse(json);
+              _applyModPayload(payload);
+            } catch (e) { console.warn('[ModLoader] payload JSON parse error:', e); }
+            // 本体には不要なので削除（Mod data 画面に表示しない）
+            delete Game.modSaveData[MOD_LOADER_KEY];
+          }
+        } catch (e) { console.error('[ModLoader] loadModData hook error:', e); }
+        try { return Game._modOrigLoadModData.apply(this, arguments); }
+        catch (e) { console.error('[ModLoader] loadModData orig error:', e); }
+      };
+    }
+
+    /* === 旧形式 (||MOD||<b64>) のセーブを読めるようにする後方互換フック === */
     if (typeof Game.ImportSaveCode === 'function' && !Game._modOrigImportSaveCode) {
       Game._modOrigImportSaveCode = Game.ImportSaveCode;
       Game.ImportSaveCode = function (save) {
@@ -202,34 +229,35 @@
       };
     }
 
-    // LoadSave: localStorage 経由のロードにも対応
     if (typeof Game.LoadSave === 'function' && !Game._modOrigLoadSave) {
       Game._modOrigLoadSave = Game.LoadSave;
       Game.LoadSave = function (data) {
-        var save = data;
-        if (typeof save !== 'string') {
-          try { save = localStorage.getItem(Game.SaveTo); } catch (e) {}
+        // 旧フォーマットマーカーが入っていれば取り除いてから本体へ
+        if (typeof data === 'string' && data.indexOf(SAVE_MARKER) >= 0) {
+          var split = _splitModFromSave(data);
+          var ret = Game._modOrigLoadSave.call(this, split.core);
+          if (split.payload) _applyModPayload(split.payload);
+          return ret;
         }
-        var split = _splitModFromSave(save);
-        var ret;
-        if (typeof data === 'string') {
-          ret = Game._modOrigLoadSave.call(this, split.core);
-        } else {
-          // localStorage を一時的に書き換えてオリジナルへ
-          var key = Game.SaveTo;
-          var orig = null;
-          try { orig = localStorage.getItem(key); } catch (e) {}
-          try { if (split.core != null) localStorage.setItem(key, split.core); } catch (e) {}
-          ret = Game._modOrigLoadSave.call(this, data);
-          // 元に戻す (WriteSave 時に再付与される)
-          try { if (orig != null) localStorage.setItem(key, orig); } catch (e) {}
-        }
-        if (split.payload) _applyModPayload(split.payload);
-        return ret;
+        return Game._modOrigLoadSave.apply(this, arguments);
       };
     }
 
-    console.log('[ModLoader] セーブ/ロードフック完了');
+    console.log('[ModLoader] セーブ/ロードフック完了 (saveModData 方式)');
+  }
+
+  /* MOD ペイロード本体生成 (オブジェクト) */
+  function _buildModSavePayloadObj() {
+    var payload = { enabled: _enabled, mods: {} };
+    for (var id in _registered) {
+      if (!Object.prototype.hasOwnProperty.call(_registered, id)) continue;
+      var reg = _registered[id];
+      if (reg && typeof reg.save === 'function') {
+        try { payload.mods[id] = reg.save(); }
+        catch (e) { console.error('[ModLoader] save() エラー (' + id + '):', e); }
+      }
+    }
+    return payload;
   }
 
   /* =========================================================
