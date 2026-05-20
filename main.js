@@ -319,12 +319,12 @@ var SimpleBeautify=function(val)
 
 var beautifyInTextFilter=/(([\d]+[,]*)+)/g;//new regex
 function BeautifyInTextFunction(str){return Beautify(parseInt(str.replace(/,/g,''),10));};
-function BeautifyInText(str) {return str.replace(beautifyInTextFilter,BeautifyInTextFunction);}//reformat every number inside a string
+function BeautifyInText(str) {if (typeof str!=='string') return str||'';return str.replace(beautifyInTextFilter,BeautifyInTextFunction);}//reformat every number inside a string
 function BeautifyAll()//run through upgrades and achievements to reformat the numbers
 {
 	var func=function(what){what.ddesc=BeautifyInText(what.ddesc);}
-	for (var i in Game.UpgradesById){Game.UpgradesById[i].ddesc=BeautifyInText(Game.UpgradesById[i].ddesc);}
-	for (var i in Game.AchievementsById){Game.AchievementsById[i].ddesc=BeautifyInText(Game.AchievementsById[i].ddesc);}
+	for (var i in Game.UpgradesById){var u=Game.UpgradesById[i];if (u && typeof u.ddesc==='string') u.ddesc=BeautifyInText(u.ddesc);}
+	for (var i in Game.AchievementsById){var a=Game.AchievementsById[i];if (a && typeof a.ddesc==='string') a.ddesc=BeautifyInText(a.ddesc);}
 }
 
 function fixScrollbars()
