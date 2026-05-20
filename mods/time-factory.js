@@ -6,6 +6,14 @@
  *  - スライダー・倍率ボタンは MODタブ内の TimeFactory タブ (settings) に移動
  *  - 100x ボタンを追加（スライダーは従来通り 0.5～10x）
  *  - セーブ/ロードに対応 (save/load フックを通じて速度を記録)
+ *
+ * バグ修正:
+ *  - 倍速時に「毎秒生産Nトリリオン」等の実績が誤解除されるバグを修正
+ *  - 原因: Game.fps を上げると Game.Logic 内の cookiesPs 計算も狂い、
+ *          実績判定用の「毎秒生産量」が speed 倍に水増しされていた
+ *  - 修正: Game.fps は常に BASE_FPS(30) のまま保持し、
+ *          代わりに 1 フレームで Game.Logic を複数回呼び出すことで加速する
+ *          (0.5x 時は確率的に 1 フレームおきにスキップして減速)
  */
 
 (function () {
@@ -36,21 +44,35 @@
     return 1;
   }
 
+  // フレームをまたいだ端数呼び出し管理用アキュムレータ
+  var _accumulator = 0;
+
   function _applySpeed(speed) {
     _currentSpeed = speed;
     if (typeof Game === 'undefined') return;
 
+    // Game.fps は常に BASE_FPS(30) のまま固定し、
+    // 1フレームごとに Logic を「speed 回分」呼ぶことで加速する。
+    // これにより cookiesPs ベースの実績判定が狂わない。
     if (!Game._tfOrigLogic) {
       Game._tfOrigLogic = Game.Logic;
       Game.Logic = function () {
-        var savedFps = Game.fps;
-        Game.fps = BASE_FPS;
-        Game._tfOrigLogic.call(Game);
-        Game.fps = savedFps;
+        // アキュムレータに speed を積み、整数部だけ呼び出す。
+        // 端数は次フレームへ繰り越すことで長期平均が正確に speed 倍になる。
+        // 例) 0.5x → 2フレームに1回、2x → 毎フレーム2回、2.5x → 交互に2/3回
+        _accumulator += _currentSpeed;
+        var calls = Math.floor(_accumulator);
+        _accumulator -= calls;
+        // 暴走防止（MAX_SPEED 回を上限に制限）
+        calls = Math.min(calls, MAX_SPEED);
+        for (var i = 0; i < calls; i++) {
+          Game._tfOrigLogic.call(Game);
+        }
       };
     }
 
-    Game.fps = Math.round(BASE_FPS * speed);
+    // fps は常に BASE_FPS に固定（実績判定を正常に保つため変更しない）
+    Game.fps = BASE_FPS;
 
     _showNotif(speed);
     _saveSpeed(speed);
@@ -114,10 +136,10 @@
     },
 
     settings: function () {
-      var fps = (typeof Game !== 'undefined' && Game.fps) ? Game.fps : '-';
+      var equivFps = Math.round(BASE_FPS * _currentSpeed);
       var html = '<div style="padding:6px 4px;">';
       html += '<div style="margin-bottom:8px;">現在の速度: <b>' + _currentSpeed + 'x</b>  ' +
-              '<small style="opacity:0.6;">(fps: ' + fps + ')</small></div>';
+              '<small style="opacity:0.6;">(実効 fps: ' + equivFps + ' / 描画 fps: ' + BASE_FPS + ')</small></div>';
 
       // スライダーは MIN_SPEED ～ SLIDER_MAX に固定。100x はボタンのみ。
       var sliderValue = Math.min(SLIDER_MAX, _currentSpeed) * 10;
@@ -158,7 +180,7 @@
       _currentSpeed = 1;
       _saveSpeed(1);
       try { delete window.TimeFactory; } catch (e) { window.TimeFactory = undefined; }
-      console.log('[TimeFactory] 無効化: fps を ' + BASE_FPS + ' に戻しました');
+      console.log('[TimeFactory] 無効化: 速度を 1x (fps=' + BASE_FPS + ') に戻しました');
     }
   });
 
