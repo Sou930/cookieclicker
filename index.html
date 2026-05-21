@@ -1,247 +1,113 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-
-<script>
-	var VERSION=2.058;
-	var BETA=0;
-	var SAVESUFFIX='';
-	var App=typeof App==='undefined'?0:App;
-	var PRESETMODS=[];
-	var LOCAL=(App || !window.location.hostname || window.location.hostname==='localhost' || window.location.hostname==='127.0.0.1');
-</script>
-
-<title>Cookie Clicker</title>
-<!--
-Code and graphics copyright Orteil, 2013-2026
-Feel free to alter this code to your liking, but please do not re-host it, do not profit from it and do not present it as your own.
--->
-
-<!-- モバイル対応: 端末幅に合わせる + ピンチズーム許可 -->
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
-
-<!-- PWA / ホーム画面追加 -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#321a04">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Cookie Clicker">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="application-name" content="Cookie Clicker">
-<link rel="apple-touch-icon" href="img/appleicon180.png">
-<link rel="shortcut icon" href="img/favicon.ico" />
-<script src="base64.js"></script>
-
-<link href="style.css?v=10c" rel="stylesheet" type="text/css">
-<link href="style-mobile.css?v=1" rel="stylesheet" type="text/css">
-<script src="main.js?v=13g"></script>
-
-<!-- 広告なし設定 -->
-<script type="text/javascript">
-	adsbygoogle=window.adsbygoogle={
-		enabled:false,
-		loaded:true,
-		push:function(){return;},
-		google_ad_client:"",
-		enable_page_level_ads:false
-	};
-</script>
-<script src="showads.js"></script>
-
-<!--[if IE]>
-<style type="text/css">
-	#ifIE9{display:block;}
-</style>
-<![endif]-->
-
-<!--[if lt IE9]><script src="excanvas.compiled.js"></script><![endif]-->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+  <meta name="theme-color" content="#06111f">
+  <meta name="description" content="プレイヤー不在中も成長し続ける自律工場シミュレーション">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="img/favicon.ico">
+  <link rel="stylesheet" href="factory.css">
+  <title>自律クッキー工場</title>
 </head>
 <body>
+  <div class="factory-lights" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
 
-<div id="wrapper">
+  <main class="app-shell">
+    <header class="top-panel glass-panel">
+      <div>
+        <p class="eyebrow">無人工場 管制室</p>
+        <h1>自律クッキー工場</h1>
+      </div>
+      <div class="status-grid" aria-label="工場状態">
+        <div><span>稼働状態</span><strong id="statusText">起動中</strong></div>
+        <div><span>復帰倍率</span><strong id="burstText">なし</strong></div>
+        <div><span>オフライン上限</span><strong id="offlineCapText">--</strong></div>
+      </div>
+    </header>
 
-	<div id="topBar">
-		<div style="float:right;position:relative;"><div id="tinyglobe" style="position:absolute;top:-4px;width:22px;height:22px;background:url(img/tinyglobeSheet.gif);right:4px;top:4px;pointer-events:none;"></div><a id="changeLanguage" style="font-variant:small-caps;padding-right:20px;" onmouseover="INTERVAL_TINYGLOBE=setInterval(function(){var tinyglobe=document.getElementById('tinyglobe');tinyglobe.style.backgroundPosition=(parseInt(tinyglobe.style.backgroundPosition)-22)+'px';},30);" onmouseout="clearInterval(INTERVAL_TINYGLOBE);">Change language</a><script>document.getElementById('tinyglobe').style.backgroundPosition=(-[0,19,27][Math.floor(Math.random()*3)]*22)+'px';</script></div>
-		<div id="topBarEnd" style="float:right;padding:0px;"></div>
+    <section class="hero-grid">
+      <section class="production-panel glass-panel">
+        <div class="counter-card">
+          <p>総クッキー</p>
+          <strong id="cookieCount">0</strong>
+          <span id="perSecond">毎秒 0</span>
+        </div>
 
-		<!-- main.js が参照するトップバー要素（非表示） -->
-		<div id="heralds" style="display:none;"><span id="heraldsAmount">?</span></div>
-		<span id="httpsSwitch" style="display:none;"></span>
-		<a id="topbarOtherVersions" style="display:none;">Other versions</a>
-		<a id="topbarOrteil" style="display:none;"></a>
-		<a id="topbarTumblr" style="display:none;"></a>
-		<a id="topbarTwitter" style="display:none;"></a>
-		<a id="topbarDashnet" style="display:none;"></a>
-		<a id="topbarDiscord" style="display:none;"></a>
-		<a id="topbarMerch" style="display:none;"></a>
-		<a id="topbarMobileCC" style="display:none;"></a>
-		<a id="topbarSteamCC" style="display:none;"></a>
-		<a id="topbarRandomgen" style="display:none;"></a>
-		<a id="topbarIGM" style="display:none;"></a>
-	</div>
+        <div class="machine-wrap">
+          <div class="conveyor" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          <button id="manualButton" class="core-machine" type="button" aria-label="手動稼働">
+            <span class="machine-glow"></span>
+            <span class="gear gear-a">⚙</span>
+            <span class="gear gear-b">⚙</span>
+            <span class="cookie-core">●</span>
+            <span class="press-label">手動稼働</span>
+          </button>
+          <div id="floatingLayer" class="floating-layer" aria-hidden="true"></div>
+        </div>
 
-	<div id="game">
-		<div id="versionNumber" class="title"></div>
-		<script>document.getElementById('versionNumber').innerHTML='v. '+VERSION;</script>
-		<div id="offGameMessageWrap">
-			<div id="offGameMessage">
-				<div id="loader">
-					<div class="spinnyBig"></div>
-					<div class="spinnySmall"></div>
-					<div id="loading" class="title">Loading...</div>
-					<div id="failedToLoad" class="title">This is taking longer than expected.<br>
-					<div style="font-size:65%;line-height:120%;"><!-- error -->Slow connection? If not, please make sure your javascript is enabled, then refresh.<br>
-					If problems persist, this might be on our side - wait a few minutes, then hit ctrl+f5!<!-- /error --></div></div>
-					<div id="ifIE9" class="title" style="font-size:100%;line-height:120%;">Your browser may not be recent enough to run Cookie Clicker.<br>You might want to update, or switch to a more modern browser such as Chrome or Firefox.</div>
-				</div>
-			</div>
-		</div>
+        <div class="factory-readout">
+          <div><span>クリック出力</span><strong id="clickPowerText">1</strong></div>
+          <div><span>オフライン効率</span><strong id="offlineEfficiencyText">25%</strong></div>
+          <div><span>時間圧縮</span><strong id="timeCompressionText">1.00倍</strong></div>
+          <div><span>事故危険度</span><strong id="riskText">0%</strong></div>
+        </div>
+      </section>
 
-		<canvas id="backgroundCanvas"></canvas>
-		
-		<div id="goldenCookie" class="goldenCookie"></div>
-		<div id="seasonPopup" class="seasonPopup"></div>
-		<div id="shimmers"></div>
-		<div id="alert"></div>
-		<div id="particles"></div>
-		<div id="sparkles" class="sparkles"></div>
-		<div id="notes"></div>
-		<div id="darken"></div>
-		<div id="toggleBox" class="framed prompt"></div>
-		<div id="promptAnchor"><div id="prompt" class="framed"><div id="promptContent"></div><div id="promptClose" class="close" style="display:none;" onclick="PlaySound('snd/tickOff.mp3');Game.ClosePrompt();">x</div></div></div>
-		<div id="ascend">
-			<div id="ascendBG"></div>
-			<div id="ascendZoomable"><div id="ascendContent"><div id="ascendUpgrades" style="position:absolute;"></div></div></div>
-			<div id="ascendOverlay"></div>
-		</div>
-		
-		<div id="debug"><div id="devConsole" class="framed"></div><div id="debugLog"></div></div>
-		
-		<div id="sectionLeft" class="inset">
-			<canvas id="backgroundLeftCanvas" style="z-index:5;"></canvas>
-			<div class="blackFiller"></div>
-			<div class="blackGradient"></div>
-			<div id="sectionLeftInfo"></div>
-			<div id="cookies" class="title"></div>
-			<div id="bakeryNameAnchor"><div id="bakeryName" class="title"></div></div>
-			<div id="specialPopup" class="framed prompt offScreen"></div>
-			<div id="buffs" class="crateBox"></div>
-			<div id="cookieAnchor">
-				<button id="bigCookie"></button>
-				<div id="cookieNumbers"></div>
-			</div>
-			<div id="sectionLeftExtra"></div>
-		</div>
+      <aside class="overview-panel glass-panel">
+        <h2>工場方針</h2>
+        <div id="archetypes" class="archetype-list"></div>
+        <h2>稼働ログ</h2>
+        <div id="logList" class="log-list" aria-live="polite"></div>
+      </aside>
+    </section>
 
-		<div class="separatorLeft" id="leftBeam"></div>
-		<div class="separatorRight" id="rightBeam"></div>
+    <section class="shop-panel glass-panel">
+      <div class="shop-heading">
+        <div>
+          <p class="eyebrow">拡張ショップ</p>
+          <h2>増設計画</h2>
+        </div>
+        <div class="shop-actions">
+          <button id="saveButton" type="button">保存</button>
+          <button id="resetButton" type="button">初期化</button>
+        </div>
+      </div>
+      <nav id="categoryTabs" class="category-tabs" aria-label="ショップ分類"></nav>
+      <div id="upgradeGrid" class="upgrade-grid"></div>
+    </section>
+  </main>
 
-		<div id="sectionMiddle" class="inset">
-			<div id="comments" class="inset title">
-				<div id="homeButton" class="panelButton"><div>ホーム</div></div>
-				<div id="modsButton" class="panelButton"><div>Mod</div></div>
-				<div id="logButton" class="panelButton"><div>情報</div><div id="checkForUpdate">New update!</div></div>
-				<div id="legacyButton" class="panelButton"><div class="subButton">遺産</div><div id="ascendMeterContainer" class="smallFramed meterContainer"><div id="ascendMeter" class="meter filling"></div></div><div class="roundedPanel" id="ascendNumber"></div><div id="ascendTooltip" class="framed"></div></div>
-				<div id="statsButton" class="panelButton"><div>記録</div></div>
-				<div id="prefsButton" class="panelButton"><div class="subButton">オプション</div></div>
-				<div id="commentsText">
-					<div id="commentsText1" class="commentsText"></div>
-					<div id="commentsText2" class="commentsText"></div>
-				</div>
-				<div class="separatorBottom"></div>
-			</div>
-			<div id="centerArea">
-				<div id="buildingsTitle" class="inset title zoneTitle">Buildings</div>
-				<div id="buildingsMaster"></div>
-				<div id="rows"></div>
-				<div id="menu"></div>
-			</div>
-		</div>
-		
-		<div id="sectionRight" class="inset">
-			<div id="store">
-				<div id="storeTitle" class="inset title zoneTitle">Store</div>
-				<div id="toggleUpgrades" class="storeSection upgradeBox"></div>
-				<div id="techUpgrades" class="storeSection upgradeBox"></div>
-				<div id="vaultUpgrades" class="storeSection upgradeBox"></div>
-				<div id="upgrades" class="storeSection upgradeBox"></div>
-				<div id="products" class="storeSection"></div>
-			</div>
-			<!-- アドブロック検知用ダミー (ゲームのレイアウト計算に必要) -->
-			<div id="detectAds" class="adBanner" style="background:transparent;width:1px;height:1px;"></div>
-		</div>
-		
-		<div id="tooltipAnchor"><div id="tooltip" class="framed" onMouseOut="Game.tooltip.hide();"></div></div>
-		<div id="preloadImages" style="display:none;"></div>
+  <div id="offlineModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="offlineTitle">
+    <div class="offline-modal glass-panel">
+      <div class="burst-ring" aria-hidden="true"></div>
+      <p class="eyebrow">復帰報告</p>
+      <h2 id="offlineTitle">工場復帰完了</h2>
+      <p id="offlineDuration">工場は稼働し続けました</p>
+      <strong id="offlineGain">+0 クッキー獲得</strong>
+      <p id="offlineDetail">自律ラインが蓄積分を搬入しました。</p>
+      <button id="offlineClose" type="button">受け取る</button>
+    </div>
+  </div>
 
-		<!-- main.js が参照する非表示要素群 -->
-		<div style="display:none;">
-			<!-- アセンド画面 -->
-			<div id="ascendHCs"></div>
-			<div id="ascendPrestige"></div>
-			<a id="ascendModeButton"></a>
+  <template id="upgradeCardTemplate">
+    <article class="upgrade-card">
+      <div class="upgrade-top">
+        <span class="upgrade-icon"></span>
+        <div>
+          <h3></h3>
+          <p></p>
+        </div>
+      </div>
+      <div class="upgrade-meta">
+        <span class="upgrade-cost"></span>
+        <span class="upgrade-level"></span>
+      </div>
+      <button type="button" class="buy-button">購入</button>
+    </article>
+  </template>
 
-			<!-- ベーカリー名入力 -->
-			<input id="bakeryNameInput" type="text">
-
-			<!-- ストア -->
-			<div id="storeBulkMax"></div>
-
-			<!-- アップグレードスロット -->
-			<div id="upgradeToSlotWrap"><div id="upgradeToSlotNone"></div></div>
-
-			<!-- ランプ -->
-			<div id="lumpsIcon"></div>
-			<div id="lumpsIcon2"></div>
-			<span id="lumpsAmount"></span>
-
-			<!-- ドラゴン -->
-			<div id="dragonAuraInfo"></div>
-
-			<!-- ビルディング -->
-			<div id="buildingsMute"></div>
-
-			<!-- ジュークボックス -->
-			<div id="jukeboxPlayer"></div>
-			<div id="jukeboxOnTrack"></div>
-			<div id="jukeboxOnTrackAuthor"></div>
-			<div id="jukeboxOnSound"></div>
-			<span id="jukeboxOnSoundN"></span>
-			<div id="jukeboxTrackSelect"></div>
-			<div id="jukeboxSoundSelect"></div>
-			<div id="jukeboxMusicPlay"></div>
-			<div id="jukeboxMusicLoop"></div>
-			<div id="jukeboxMusicAuto"></div>
-			<div id="jukeboxMusicScrub"></div>
-			<span id="jukeboxMusicScrubElapsed"></span>
-			<span id="jukeboxMusicTime"></span>
-			<span id="jukeboxMusicTotalTime"></span>
-
-			<!-- ギフト -->
-			<div id="giftPromptContainer">
-				<div id="giftPromptSelector"></div>
-			</div>
-			<div id="giftBoxIcon"></div>
-			<div id="giftBoxIconNone"></div>
-			<div id="giftBoxDesign"></div>
-			<input id="giftCode" type="text">
-			<span id="giftAmount"></span>
-			<div id="giftMessage"></div>
-			<div id="giftError"></div>
-
-			<!-- 言語選択 -->
-			<div id="languageSelectHeader"></div>
-
-			<!-- その他 -->
-			<div id="promptOption0"></div>
-			<textarea id="textareaPrompt"></textarea>
-		</div>
-
-	</div>
-
-</div>
-
-<script src="mod-loader.js"></script>
-<script src="pwa.js"></script>
+  <script src="factory.js" defer></script>
 </body>
 </html>
