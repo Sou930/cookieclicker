@@ -20,7 +20,7 @@
   ========================================================= */
   var config = {
     autoBuy          : false,
-    autoBuyInterval  : 1000,
+    autoBuyInterval  : 250,
     autoGC           : false,
     autoGCInterval   : 500,
     skipWrath        : true,
@@ -36,6 +36,7 @@
   /* アップグレード優先度低下用の倍率
      ＝ 大きいほどアップグレードが後回しになる */
   var UPGRADE_PRIORITY_PENALTY = 2.5;
+  var AUTO_BUY_MAX_PER_TICK = 3;
 
   /* =========================================================
      数値フォーマット（_shortNum）
@@ -101,6 +102,41 @@
    効率計算
 ========================================================= */
 
+function _snapshotGainState() {
+  return {
+    cookiesPs: Game.cookiesPs,
+    cookiesPsRaw: Game.cookiesPsRaw,
+    cookiesPsRawHighest: Game.cookiesPsRawHighest,
+    cpsSucked: Game.cpsSucked,
+    recalculateGains: Game.recalculateGains
+  };
+}
+
+function _restoreGainState(snap) {
+  if (!snap) return;
+  Game.cookiesPs = snap.cookiesPs;
+  Game.cookiesPsRaw = snap.cookiesPsRaw;
+  Game.cookiesPsRawHighest = snap.cookiesPsRawHighest;
+  Game.cpsSucked = snap.cpsSucked;
+  Game.recalculateGains = snap.recalculateGains;
+}
+
+function _withSuppressedWins(fn) {
+  if (!Game.Win) return fn();
+  var oldWin = Game.Win;
+  Game.Win = function () { return 0; };
+  try { return fn(); }
+  finally { Game.Win = oldWin; }
+}
+
+function _getBuildingPrice(obj) {
+  if (!obj) return 0;
+  if (typeof obj.getPrice === 'function') {
+    try { return obj.getPrice(); } catch (e) {}
+  }
+  return obj.price || 0;
+}
+
 function _currentCps() {
   if (!_gameReady()) return 1;
 
@@ -118,25 +154,30 @@ function _currentCps() {
 function _buildingDeltaCps(obj) {
   if (!obj) return 0;
 
+  var oldAmount = obj.amount;
+  var snap = _snapshotGainState();
+
   try {
-    var before = Game.cookiesPs;
+    return _withSuppressedWins(function () {
+      var before = Game.cookiesPs;
 
-    // 仮購入
-    obj.amount += 1;
-    Game.CalculateGains();
+      // 仮購入（実績・最高CpSなどの副作用は抑止して最後に復元）
+      obj.amount = oldAmount + 1;
+      Game.CalculateGains();
 
-    var after = Game.cookiesPs;
+      var after = Game.cookiesPs;
 
-    // 元に戻す
-    obj.amount -= 1;
-    Game.CalculateGains();
-
-    return Math.max(after - before, 0);
+      return Math.max(after - before, 0);
+    });
 
   } catch (e) {
 
     // フォールバック
     return (obj.storedCps || 0) * (Game.globalCpsMult || 1);
+  } finally {
+    obj.amount = oldAmount;
+    try { _withSuppressedWins(function () { Game.CalculateGains(); }); } catch (e2) {}
+    _restoreGainState(snap);
   }
 }
 
@@ -146,7 +187,7 @@ function _buildingDeltaCps(obj) {
 function _buildingEfficiency(obj) {
   if (!obj) return Infinity;
 
-  var price = obj.price || 0;
+  var price = _getBuildingPrice(obj);
   var deltaCps = _buildingDeltaCps(obj);
 
   if (deltaCps <= 0) return Infinity;
@@ -161,29 +202,29 @@ function _buildingEfficiency(obj) {
 function _upgradeDeltaCps(up) {
   if (!up) return 0;
 
+  var oldBought = up.bought;
+  var snap = _snapshotGainState();
+
   try {
-    var before = Game.cookiesPs;
+    return _withSuppressedWins(function () {
+      var before = Game.cookiesPs;
 
-    // 状態保存
-    var oldBought = up.bought;
+      // 仮購入（実績・最高CpSなどの副作用は抑止して最後に復元）
+      up.bought = 1;
+      Game.CalculateGains();
 
-    // 仮購入
-    up.bought = 1;
+      var after = Game.cookiesPs;
 
-    Game.CalculateGains();
-
-    var after = Game.cookiesPs;
-
-    // 元に戻す
-    up.bought = oldBought;
-
-    Game.CalculateGains();
-
-    return Math.max(after - before, 0);
+      return Math.max(after - before, 0);
+    });
 
   } catch (e) {
     console.error('[SmartHelper] upgrade cps calc error:', e);
     return 0;
+  } finally {
+    up.bought = oldBought;
+    try { _withSuppressedWins(function () { Game.CalculateGains(); }); } catch (e2) {}
+    _restoreGainState(snap);
   }
 }
 
@@ -230,9 +271,9 @@ function _getRankedList() {
 
     list.push({
       name   : obj.name || name,
-      price  : obj.price || 0,
+      price  : _getBuildingPrice(obj),
       eff    : _buildingEfficiency(obj),
-      canBuy : (Game.cookies || 0) >= (obj.price || 0),
+      canBuy : (Game.cookies || 0) >= _getBuildingPrice(obj),
       type   : 'building',
       ref    : obj
     });
@@ -300,13 +341,49 @@ function _getRankedList() {
     } catch (e) { console.error('[SmartHelper] autoClick error:', e); }
   }
 
+  function _purchaseRankedItem(item) {
+    if (!item || !item.ref) return false;
+
+    if (item.type === 'upgrade') {
+      // 効率表で選んだアップグレードを通常購入と同じ経路で買う
+      return !!item.ref.buy();
+    }
+
+    if (item.type === 'building') {
+      var oldBuyMode = Game.buyMode;
+      var beforeAmount = item.ref.amount;
+      try {
+        Game.buyMode = 1; // 売却モード中でも自動購入では必ず購入する
+        item.ref.buy(1);
+      } finally {
+        Game.buyMode = oldBuyMode;
+      }
+      return item.ref.amount > beforeAmount;
+    }
+
+    return false;
+  }
+
   function _autoBuyTick() {
     if (!_gameReady() || Game.OnAscend || Game.AscendTimer > 0) return;
-    var list = _getRankedList();
-    for (var i = 0; i < list.length; i++) {
-      var item = list[i];
-      if (!item.canBuy) continue;
-      try { item.ref.buy(1); return; } catch (e) { console.error('[SmartHelper] autoBuy error:', e); }
+
+    for (var bought = 0; bought < AUTO_BUY_MAX_PER_TICK; bought++) {
+      var list = _getRankedList();
+      var purchased = false;
+
+      for (var i = 0; i < list.length; i++) {
+        var item = list[i];
+        if (!item.canBuy || item.eff === Infinity) continue;
+        try {
+          purchased = _purchaseRankedItem(item);
+        } catch (e) {
+          console.error('[SmartHelper] autoBuy error:', e);
+          purchased = false;
+        }
+        if (purchased) break;
+      }
+
+      if (!purchased) return;
     }
   }
 
@@ -444,7 +521,7 @@ function _getRankedList() {
 
     return ''
       + row('autoClick',         '🖱️ 自動クリック',     '毎' + config.autoClickInterval + 'msクッキーをクリック')
-      + row('autoBuy',           '🛒 自動購入',          '最効率の建物・アップグレードを自動購入')
+      + row('autoBuy',           '🛒 自動購入',          '毎' + config.autoBuyInterval + 'ms、効率表と同じ基準で最大' + AUTO_BUY_MAX_PER_TICK + '件購入')
       + row('autoGC',            '✨ GC自動クリック',    'ゴールデンクッキーを自動でクリック')
       + row('skipWrath',         '😈 Wrathスキップ',     '怒りクッキーはスキップ')
       + row('autoPopWrinkler',   '🐛 ラッパー自動pop',  'ラッパーを自動で破裂させる')
@@ -501,6 +578,8 @@ function _getRankedList() {
             config[k] = data.config[k];
           }
         }
+        // 旧セーブの1秒間隔を引き継いでしまわないよう、新しい高速既定値へ移行
+        if (config.autoBuyInterval > 250) config.autoBuyInterval = 250;
         _applyConfig();
       },
 

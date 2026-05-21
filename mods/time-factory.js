@@ -48,6 +48,31 @@
   var _notifTimer   = null;
 
   /* ============================================================
+     CpS実績ガード
+     ------------------------------------------------------------
+     倍速中は 1 回の描画フレーム内で Game.Logic を複数回実行する。
+     その「追加分」の内部 tick で CpS 再計算が走ると、本体側の
+     CpS 実績判定が実時間ベースの通常 tick と混ざって誤発火する
+     ことがあるため、追加 tick 中だけ CpS 実績の Game.Win を抑止する。
+  ============================================================ */
+  function isCpsAchievementName(name) {
+    if (typeof Game === 'undefined' || !Game.CpsAchievements) return false;
+    for (var i = 0; i < Game.CpsAchievements.length; i++) {
+      if (Game.CpsAchievements[i] && Game.CpsAchievements[i].name === name) return true;
+    }
+    return false;
+  }
+
+  function installCpsAchievementGuard() {
+    if (typeof Game === 'undefined' || !Game.Win || Game._tfOrigWin) return;
+    Game._tfOrigWin = Game.Win;
+    Game.Win = function (name) {
+      if (Game._tfSuppressCpsAchievements && isCpsAchievementName(name)) return 0;
+      return Game._tfOrigWin.apply(Game, arguments);
+    };
+  }
+
+  /* ============================================================
      実績 — 外部JSON
   ============================================================ */
   var ACHIEVEMENTS_JSON_URL = 'mods/achievements/time-factory.json';
@@ -154,6 +179,8 @@
     state.speed   = speed;
     if (typeof Game === 'undefined') return;
 
+    installCpsAchievementGuard();
+
     if (!Game._tfOrigLogic) {
       Game._tfOrigLogic = Game.Logic;
       Game.Logic = function () {
@@ -162,8 +189,16 @@
         var calls = Math.floor(_accumulator);
         _accumulator -= calls;
         calls = Math.min(calls, MAX_SPEED);
-        for (var i = 0; i < calls; i++) {
-          Game._tfOrigLogic.call(Game);
+
+        var oldSuppress = Game._tfSuppressCpsAchievements;
+        try {
+          for (var i = 0; i < calls; i++) {
+            // 1回目は通常tickとして扱い、2回目以降の追加tickだけCpS実績を抑止
+            Game._tfSuppressCpsAchievements = (_currentSpeed !== 1 && i > 0);
+            Game._tfOrigLogic.call(Game);
+          }
+        } finally {
+          Game._tfSuppressCpsAchievements = oldSuppress;
         }
 
         // 100x 中の経過秒を積算（1フレーム = 1/30秒 × calls 回）
@@ -323,6 +358,11 @@
           Game.Logic = Game._tfOrigLogic;
           delete Game._tfOrigLogic;
         }
+        if (Game._tfOrigWin) {
+          Game.Win = Game._tfOrigWin;
+          delete Game._tfOrigWin;
+        }
+        delete Game._tfSuppressCpsAchievements;
         Game.fps = BASE_FPS;
       }
       _currentSpeed = 1;
