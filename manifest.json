@@ -1,13 +1,13 @@
 {
-  "name": "Cookie Clicker (MOD)",
-  "short_name": "Cookie Clicker",
-  "description": "Cookie Clicker ミラー版。MOD（Time Factory / Dungeon Explorer / Smart Helper）を内蔵。",
+  "name": "自律クッキー工場",
+  "short_name": "自律工場",
+  "description": "プレイヤー不在中も成長し続ける自律工場シミュレーション。",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#321a04",
-  "theme_color": "#321a04",
+  "background_color": "#06111f",
+  "theme_color": "#06111f",
   "lang": "ja",
   "categories": ["games", "entertainment"],
   "icons": [
